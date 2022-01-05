@@ -1,0 +1,5 @@
+[workspace]
+
+members = [
+    "fc-hedge-api"
+]
