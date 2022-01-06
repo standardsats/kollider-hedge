@@ -4,6 +4,7 @@ use rweb::*;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::str::FromStr;
+use crate::kollider::hedge::db::Pool;
 
 #[derive(Serialize, Deserialize, Schema)]
 struct HtlcInfo {
@@ -26,7 +27,7 @@ pub fn hedge_api_specs() -> Spec {
     return _spec;
 }
 
-pub async fn serve_api(host: &str, port: u16) -> Result<(), Box<dyn Error>> {
+pub async fn serve_api(host: &str, port: u16, pool: Pool) -> Result<(), Box<dyn Error>> {
     let filter = hedge_htlc();
     serve(filter).run((IpAddr::from_str(host)?, port)).await;
     Ok(())

@@ -1,6 +1,7 @@
 mod kollider;
 
 use crate::kollider::hedge::api::{serve_api, hedge_api_specs};
+use crate::kollider::hedge::db::{create_db_pool};
 use clap::Parser;
 use futures::StreamExt;
 use kollider_api::kollider::{websocket::*, ChannelName};
@@ -33,8 +34,11 @@ enum SubCommand {
         )]
         host: String,
         /// Port to bind the service to
-        #[clap(long, short, default_value = "8080", env = "KOLLIDER_HEDGE_PORT")]
+        #[clap(long, short, default_value = "8081", env = "KOLLIDER_HEDGE_PORT")]
         port: u16,
+        /// PostgreSQL connection string
+        #[clap(long, short, default_value = "postgres://kollider:kollider@localhost/kollider_hedge", env = "KOLLIDER_HEDGE_POSTGRES")]
+        dbconnect: String,
     },
     /// Output swagger spec
     Swagger,
@@ -46,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
     match args.subcmd {
-        SubCommand::Serve { host, port } => {
+        SubCommand::Serve { host, port, dbconnect } => {
             tokio::spawn(async move {
                 match listen_websocket(&args.api_secret, &args.api_key, &args.password).await {
                     Err(e) => {
@@ -56,7 +60,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             });
 
-            serve_api(&host, port).await?;
+            let pool = create_db_pool(&dbconnect).await?;
+
+            serve_api(&host, port, pool).await?;
         }
         SubCommand::Swagger => {
             let specs = serde_json::to_string_pretty(&hedge_api_specs())?;
