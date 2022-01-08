@@ -11,5 +11,9 @@ pub async fn create_db_pool(conn_string: &str) -> Result<Pool, sqlx::Error> {
         .max_connections(5)
         .connect(conn_string).await?;
 
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await?;
+
     Ok(pool)
 }

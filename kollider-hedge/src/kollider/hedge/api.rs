@@ -8,7 +8,7 @@ use crate::kollider::hedge::db::Pool;
 
 #[derive(Serialize, Deserialize, Schema)]
 struct HtlcInfo {
-    pub sats: u64,
+    pub sats: i64,
     pub channel_id: String,
 }
 
@@ -19,6 +19,8 @@ struct HtlcInfo {
     description = "When Eclar node receives a new HTLC to a fiat channel the endpoint is called with positive amount. If the HTLC is outcoming from the channel, the provided amount has to be negative."
 )]
 fn hedge_htlc(htlc: Json<HtlcInfo>) -> Json<()> {
+
+
     return Json::from(());
 }
 
