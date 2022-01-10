@@ -138,6 +138,7 @@ dependencies = [
  "libc",
  "num-integer",
  "num-traits",
+ "serde",
  "time",
  "winapi",
 ]
@@ -382,15 +383,6 @@ checksum = "b5115567ac25674e0043e472be13d14e537f37ea8aa4bdc4aef0c89add1db1ff"
 dependencies = [
  "libc",
  "str-buf",
-]
-
-[[package]]
-name = "fc-hedge-api"
-version = "0.1.0"
-dependencies = [
- "rweb",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1732,6 +1724,7 @@ dependencies = [
  "bitflags",
  "byteorder",
  "bytes",
+ "chrono",
  "crc",
  "crossbeam-channel",
  "crossbeam-queue",

@@ -10,6 +10,7 @@ use crate::kollider::hedge::db::Pool;
 struct HtlcInfo {
     pub sats: i64,
     pub channel_id: String,
+    pub rate: u64,
 }
 
 #[post("/hedge/htlc")]

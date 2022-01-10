@@ -1,6 +1,5 @@
 [workspace]
 
 members = [
-    "fc-hedge-api",
     "kollider-hedge"
 ]
