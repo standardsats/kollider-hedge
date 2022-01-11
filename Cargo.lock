@@ -274,6 +274,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0d720b8683f8dd83c65155f0530560cba68cd2bf395f6513a483caee57ff7f4"
+dependencies = [
+ "darling_core",
+ "darling_macro",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a340f241d2ceed1deb47ae36c4144b2707ec7dd0b649f894cb39bb595986324"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "syn",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72c41b3b7352feb3211a0d743dc5700a4e3b60f51bd2b368892d1e0f9a95f44b"
+dependencies = [
+ "darling_core",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "digest"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -736,6 +771,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ident_case"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
 name = "idna"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -846,6 +887,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "dotenv",
  "env_logger",
  "futures",
  "futures-channel",
@@ -855,6 +897,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "sqlx-database-tester",
  "thiserror",
  "tokio",
 ]
@@ -1763,6 +1806,30 @@ dependencies = [
  "webpki",
  "webpki-roots",
  "whoami",
+]
+
+[[package]]
+name = "sqlx-database-tester"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "916fcf21db15987e5ed62ea31ce814eb7f3f4d87afaa92e32d15e0a5169af7de"
+dependencies = [
+ "dotenv",
+ "http",
+ "sqlx-database-tester-macros",
+ "uuid",
+]
+
+[[package]]
+name = "sqlx-database-tester-macros"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfeb1097fcdba0d4571d76617bec2e4446bfee5910e46db9e8dcb7fed8e5ac36"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

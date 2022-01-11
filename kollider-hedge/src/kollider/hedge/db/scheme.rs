@@ -8,12 +8,13 @@ use thiserror::Error;
 /// All database updates are collected to a single table that
 /// allows to reconstruct current state of the system by replaying
 /// all events until required timestamp.
+#[derive(Debug, PartialEq)]
 pub struct StateUpdate {
     pub created: NaiveDateTime,
     pub body: UpdateBody,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum UpdateBody {
     /// Updating state of required hedging for given channel
     Htlc(HtlcUpdate),
@@ -100,8 +101,8 @@ impl UpdateTag {
 
     pub fn deserialize(&self, value: serde_json::Value) -> Result<UpdateBody, serde_json::Error> {
         match self {
-            Htlc => Ok(UpdateBody::Htlc(serde_json::from_value(value)?)),
-            Snapshot => Ok(UpdateBody::Snapshot(serde_json::from_value(value)?)),
+            UpdateTag::Htlc => Ok(UpdateBody::Htlc(serde_json::from_value(value)?)),
+            UpdateTag::Snapshot => Ok(UpdateBody::Snapshot(serde_json::from_value(value)?)),
         }
     }
 }
@@ -111,7 +112,7 @@ pub type ChannelId = String;
 /// Amount of satoshis
 pub type Sats = i64;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct HtlcUpdate {
     pub sats: Sats,
     pub channel_id: ChannelId,
@@ -171,7 +172,7 @@ impl ChannelHedge {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct StateSnapshot {
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
 }
@@ -453,7 +454,7 @@ mod tests {
         assert_eq!(
             new_hedge,
             Ok(ChannelHedge {
-                sats: 1,
+                sats: 1000000000001,
                 rate: 0,
             })
         );
