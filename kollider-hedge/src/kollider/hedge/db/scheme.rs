@@ -1,8 +1,8 @@
 use chrono::prelude::*;
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 use thiserror::Error;
 
 /// All database updates are collected to a single table that
@@ -85,12 +85,17 @@ pub enum UpdateBodyError {
 pub const CURRENT_BODY_VERSION: u16 = 0;
 
 impl UpdateTag {
-    pub fn from_tag(tag: &str, version: u16, value: serde_json::Value) -> Result<UpdateBody, UpdateBodyError> {
+    pub fn from_tag(
+        tag: &str,
+        version: u16,
+        value: serde_json::Value,
+    ) -> Result<UpdateBody, UpdateBodyError> {
         let tag = <UpdateTag as FromStr>::from_str(tag)?;
         if version != CURRENT_BODY_VERSION {
             return Err(UpdateBodyError::UnexpectedVersion(version));
         }
-        tag.deserialize(value).map_err(|e| UpdateBodyError::Deserialize(version, tag, e))
+        tag.deserialize(value)
+            .map_err(|e| UpdateBodyError::Deserialize(version, tag, e))
     }
 
     pub fn deserialize(&self, value: serde_json::Value) -> Result<UpdateBody, serde_json::Error> {
@@ -119,20 +124,50 @@ pub struct ChannelHedge {
     pub rate: Sats,
 }
 
+#[derive(Error, Debug, PartialEq)]
+pub enum HtlcUpdateErr {
+    #[error("Balance in sats is lower than update value. Was {0}, update {1}, new {2}")]
+    InsufficientSatsBalance(Sats, Sats, Sats),
+    #[error("Balance in fiat is lower than update value. Was {0}/{1}, update {2}/{3}")]
+    InsufficientFiatBalance(Sats, Sats, Sats, Sats),
+    #[error("New rate cannot fin in the 64 bits. Was {0}/{1}, update {2}/{3}, new rate: {4}")]
+    RateOverflow(Sats, Sats, Sats, Sats, i128),
+}
+
 impl ChannelHedge {
-    pub fn add_htlc(self, htlc: HtlcUpdate) -> ChannelHedge {
-        let sats = (self.sats + htlc.sats).max(0);
-        let weighted_sum = self.sats * htlc.rate + htlc.sats * self.rate;
+    pub fn with_htlc(self, htlc: HtlcUpdate) -> Result<ChannelHedge, HtlcUpdateErr> {
+        if self.sats + htlc.sats < 0 {
+            return Err(HtlcUpdateErr::InsufficientSatsBalance(
+                self.sats,
+                htlc.sats,
+                self.sats + htlc.sats,
+            ));
+        }
+
+        let sats0 = self.sats as i128;
+        let sats1 = htlc.sats as i128;
+        let rate0 = self.rate as i128;
+        let rate1 = htlc.rate as i128;
+        let sats = sats0 + sats1;
+        let weighted_sum = sats0 * rate1 + sats1 * rate0;
         let rate = if weighted_sum <= 0 {
-            0
+            return Err(HtlcUpdateErr::InsufficientFiatBalance(
+                self.sats, self.rate, htlc.sats, htlc.rate,
+            ));
         } else {
-            (sats * self.rate * htlc.rate) / weighted_sum
+            (sats * rate0 * rate1) / weighted_sum
         };
 
-        ChannelHedge {
-            sats,
-            rate
+        if rate > i64::MAX as i128 {
+            return Err(HtlcUpdateErr::RateOverflow(
+                self.sats, self.rate, htlc.sats, htlc.rate, rate,
+            ));
         }
+
+        Ok(ChannelHedge {
+            sats: sats as i64,
+            rate: rate as i64,
+        })
     }
 }
 
@@ -146,6 +181,12 @@ pub struct State {
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
 }
 
+#[derive(Error, Debug, PartialEq)]
+pub enum StateUpdateErr {
+    #[error("State update error: {0}")]
+    Htlc(#[from] HtlcUpdateErr),
+}
+
 impl State {
     pub fn new() -> Self {
         State {
@@ -154,23 +195,25 @@ impl State {
         }
     }
 
-    pub fn apply_update(&mut self, update: StateUpdate) {
+    pub fn apply_update(mut self, update: StateUpdate) -> Result<Self, StateUpdateErr> {
         match update.body {
             UpdateBody::Htlc(htlc) => {
-                self.add_htlc(htlc);
+                self = self.with_htlc(htlc)?;
                 self.last_changed = update.created;
+                Ok(self)
             }
             UpdateBody::Snapshot(snaphsot) => {
                 self.channels_hedge = snaphsot.channels_hedge;
                 self.last_changed = update.created;
+                Ok(self)
             }
         }
     }
 
-    fn add_htlc(&mut self, htlc: HtlcUpdate) {
+    fn with_htlc(mut self, htlc: HtlcUpdate) -> Result<Self, HtlcUpdateErr> {
         let chan_id = htlc.channel_id.clone();
         let new_chan = if let Some(chan) = self.channels_hedge.get(&chan_id) {
-            chan.clone().add_htlc(htlc)
+            chan.clone().with_htlc(htlc)?
         } else {
             ChannelHedge {
                 sats: htlc.sats,
@@ -178,22 +221,19 @@ impl State {
             }
         };
         self.channels_hedge.insert(chan_id, new_chan);
+
+        Ok(self)
     }
 
-    pub fn collect<I>(updates: I) -> Self
+    pub fn collect<I>(updates: I) -> Result<Self, StateUpdateErr>
     where
         I: IntoIterator<Item = StateUpdate>,
     {
-        let mut updates_iter = updates.into_iter();
-        let state = State::new();
-        loop {
-            if let Some(upd) = updates_iter.next() {
-                unimplemented!();
-            } else {
-                break;
-            }
+        let mut state = State::new();
+        for upd in updates.into_iter() {
+            state = state.apply_update(upd)?;
         }
-        return state;
+        Ok(state)
     }
 }
 
@@ -213,10 +253,209 @@ mod tests {
             rate: 1500,
         };
 
-        let new_hedge = hedge.add_htlc(upd);
-        assert_eq!(new_hedge, ChannelHedge {
-            sats: 150,
-            rate: 1125,
-        });
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 150,
+                rate: 1125,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_add_02() {
+        let hedge = ChannelHedge {
+            sats: 100,
+            rate: 1000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: 50,
+            rate: 1000,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 150,
+                rate: 1000,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_add_03() {
+        let hedge = ChannelHedge {
+            sats: 0,
+            rate: 1000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: 50,
+            rate: 2000,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 50,
+                rate: 2000,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_add_04() {
+        let hedge = ChannelHedge {
+            sats: 100,
+            rate: 3000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: 100,
+            rate: 1000,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 200,
+                rate: 1500,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_sub_01() {
+        let hedge = ChannelHedge {
+            sats: 300,
+            rate: 3000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: -300,
+            rate: 4000,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(new_hedge, Ok(ChannelHedge { sats: 0, rate: 0 }));
+    }
+
+    #[test]
+    fn test_weighted_summ_sub_02() {
+        let hedge = ChannelHedge {
+            sats: 100,
+            rate: 3000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: -99,
+            rate: 3000,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 1,
+                rate: 3000,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_sub_03() {
+        let hedge = ChannelHedge {
+            sats: 300,
+            rate: 3000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: -50,
+            rate: 1000,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 250,
+                rate: 5000,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_sub_04() {
+        let hedge = ChannelHedge {
+            sats: 2,
+            rate: 20_000_000_000_000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: -1,
+            rate: 10_000_000_000_001,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Err(HtlcUpdateErr::RateOverflow(
+                2,
+                20000000000000,
+                -1,
+                10000000000001,
+                100000000000010000000000000
+            ))
+        );
+    }
+
+
+    #[test]
+    fn test_weighted_summ_sub_05() {
+        let hedge = ChannelHedge {
+            sats: 2_000_000_000_000,
+            rate: 4000,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: -1_999_999_999_999,
+            rate: 4001,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 1,
+                rate: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn test_weighted_summ_sub_06() {
+        let hedge = ChannelHedge {
+            sats: 2_000_000_000_000,
+            rate: 1,
+        };
+        let upd = HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: -999_999_999_999,
+            rate: 2,
+        };
+
+        let new_hedge = hedge.with_htlc(upd);
+        assert_eq!(
+            new_hedge,
+            Ok(ChannelHedge {
+                sats: 1,
+                rate: 0,
+            })
+        );
     }
 }
