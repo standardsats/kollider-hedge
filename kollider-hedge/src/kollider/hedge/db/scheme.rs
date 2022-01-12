@@ -14,7 +14,7 @@ pub struct StateUpdate {
     pub body: UpdateBody,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum UpdateBody {
     /// Updating state of required hedging for given channel
     Htlc(HtlcUpdate),
@@ -27,6 +27,13 @@ impl UpdateBody {
         match self {
             UpdateBody::Htlc(_) => UpdateTag::Htlc,
             UpdateBody::Snapshot(_) => UpdateTag::Snapshot,
+        }
+    }
+
+    pub fn json(&self) -> serde_json::Result<serde_json::Value> {
+        match self {
+            UpdateBody::Htlc(v) => serde_json::to_value(v),
+            UpdateBody::Snapshot(v) => serde_json::to_value(v),
         }
     }
 }
@@ -77,8 +84,8 @@ impl FromStr for UpdateTag {
 pub enum UpdateBodyError {
     #[error("Unknown update tag: {0}")]
     UnknownTag(#[from] UnknownUpdateTag),
-    #[error("Failed to deserialize body with version {0} and tag {1}: {2}")]
-    Deserialize(u16, UpdateTag, serde_json::Error),
+    #[error("Failed to deserialize body with version {0} and tag {1}: {2}. Body: {3}")]
+    Deserialize(u16, UpdateTag, serde_json::Error, serde_json::Value),
     #[error("Unknown version tag: {0}")]
     UnexpectedVersion(u16),
 }
@@ -95,8 +102,8 @@ impl UpdateTag {
         if version != CURRENT_BODY_VERSION {
             return Err(UpdateBodyError::UnexpectedVersion(version));
         }
-        tag.deserialize(value)
-            .map_err(|e| UpdateBodyError::Deserialize(version, tag, e))
+        tag.deserialize(value.clone())
+            .map_err(|e| UpdateBodyError::Deserialize(version, tag, e, value))
     }
 
     pub fn deserialize(&self, value: serde_json::Value) -> Result<UpdateBody, serde_json::Error> {
@@ -112,10 +119,10 @@ pub type ChannelId = String;
 /// Amount of satoshis
 pub type Sats = i64;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct HtlcUpdate {
-    pub sats: Sats,
     pub channel_id: ChannelId,
+    pub sats: Sats,
     pub rate: Sats,
 }
 
@@ -172,7 +179,7 @@ impl ChannelHedge {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct StateSnapshot {
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
 }

@@ -1,5 +1,8 @@
 mod kollider;
 
+#[cfg(test)]
+#[macro_use] extern crate maplit;
+
 use crate::kollider::hedge::api::{serve_api, hedge_api_specs};
 use crate::kollider::hedge::db::{create_db_pool};
 use clap::Parser;
