@@ -20,6 +20,9 @@ struct Args {
     api_secret: String,
     #[clap(long, env = "KOLLIDER_API_PASSWORD", hide_env_values = true)]
     password: String,
+    /// PostgreSQL connection string
+    #[clap(long, short, default_value = "postgres://kollider:kollider@localhost/kollider_hedge", env = "KOLLIDER_HEDGE_POSTGRES")]
+    dbconnect: String,
     #[clap(subcommand)]
     subcmd: SubCommand,
 }
@@ -39,9 +42,6 @@ enum SubCommand {
         /// Port to bind the service to
         #[clap(long, short, default_value = "8081", env = "KOLLIDER_HEDGE_PORT")]
         port: u16,
-        /// PostgreSQL connection string
-        #[clap(long, short, default_value = "postgres://kollider:kollider@localhost/kollider_hedge", env = "KOLLIDER_HEDGE_POSTGRES")]
-        dbconnect: String,
     },
     /// Output swagger spec
     Swagger,
@@ -53,23 +53,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
     match args.subcmd {
-        SubCommand::Serve { host, port, dbconnect } => {
+        SubCommand::Serve { host, port } => {
             tokio::spawn(async move {
-                match listen_websocket(&args.api_secret, &args.api_key, &args.password).await {
-                    Err(e) => {
-                        error!("Websocket thread error: {}", e);
-                    }
-                    _ => (),
+                if let Err(e) = listen_websocket(&args.api_secret, &args.api_key, &args.password).await {
+                    error!("Websocket thread error: {}", e);
                 }
             });
 
-            let pool = create_db_pool(&dbconnect).await?;
+            let pool = create_db_pool(&args.dbconnect).await?;
 
             serve_api(&host, port, pool).await?;
         }
         SubCommand::Swagger => {
-            let specs = serde_json::to_string_pretty(&hedge_api_specs())?;
-            println!("{}", specs);
+            let pool = create_db_pool(&args.dbconnect).await?;
+            let specs = hedge_api_specs(pool).await?;
+            let specs_str = serde_json::to_string_pretty(&specs)?;
+            println!("{}", specs_str);
         }
     }
     Ok(())
