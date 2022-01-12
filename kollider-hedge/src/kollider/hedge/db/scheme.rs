@@ -184,6 +184,7 @@ pub struct StateSnapshot {
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct State {
     pub last_changed: NaiveDateTime,
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
@@ -233,6 +234,8 @@ impl State {
         Ok(self)
     }
 
+    /// Take ordered chain of updates and collect the accumulated state.
+    /// Order should be from the earliest to the latest.
     pub fn collect<I>(updates: I) -> Result<Self, StateUpdateErr>
     where
         I: IntoIterator<Item = StateUpdate>,

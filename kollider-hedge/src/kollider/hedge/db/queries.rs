@@ -1,5 +1,5 @@
 use super::consts::Pool;
-use super::scheme::{StateUpdate, UpdateBody, UpdateBodyError, UpdateTag, CURRENT_BODY_VERSION};
+use super::scheme::*;
 use chrono::prelude::*;
 use futures::StreamExt;
 use thiserror::Error;
@@ -12,6 +12,8 @@ pub enum Error {
     UpdateBody(#[from] UpdateBodyError),
     #[error("Failed to decode/encode JSON: {0}")]
     Encoding(#[from] serde_json::Error),
+    #[error("Failed to reconstruct state: {0}")]
+    StateInvalid(#[from] StateUpdateErr),
 }
 
 /// Alias for a `Result` with the error type `self::Error`.
@@ -67,6 +69,12 @@ pub async fn insert_update(pool: &Pool, update: UpdateBody) -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+/// Reconstruct state from chain of updates and snapshots in the database
+pub async fn query_state(pool: &Pool) -> Result<State> {
+    let updates = query_updates(pool).await?;
+    Ok(State::collect(updates.into_iter().rev())?)
 }
 
 #[cfg(test)]
@@ -182,6 +190,56 @@ mod tests {
                 UpdateBody::Htlc(htlc_update3),
                 UpdateBody::Snapshot(snapshot_update.clone())
             ]
+        );
+    }
+
+    #[sqlx_database_tester::test(pool(variable = "pool"))]
+    async fn test_state_fold() {
+
+        let snapshot_update = StateSnapshot {
+            channels_hedge: hashmap! {
+                "aboba".to_owned() => ChannelHedge {
+                    sats: 300,
+                    rate: 2500,
+                }
+            },
+        };
+        insert_update(&pool, UpdateBody::Snapshot(snapshot_update.clone()))
+            .await
+            .unwrap();
+
+        let htlc_update1 = HtlcUpdate {
+            sats: 100,
+            rate: 2500,
+            channel_id: "aboba".to_owned(),
+        };
+        insert_update(&pool, UpdateBody::Htlc(htlc_update1.clone()))
+            .await
+            .unwrap();
+
+
+        let htlc_update2 = HtlcUpdate {
+            sats: 500,
+            rate: 2500,
+            channel_id: "aboba".to_owned(),
+        };
+        insert_update(&pool, UpdateBody::Htlc(htlc_update2.clone()))
+            .await
+            .unwrap();
+        let state = query_state(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            state,
+            State {
+                last_changed: state.last_changed,
+                channels_hedge: hashmap!{
+                    "aboba".to_owned() => ChannelHedge {
+                        sats: 900,
+                        rate: 2500,
+                    }
+                },
+            }
         );
     }
 }
