@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::str::FromStr;
 use crate::kollider::hedge::db::Pool;
+use crate::kollider::hedge::db::scheme::{UpdateBody, HtlcUpdate};
+use crate::kollider::hedge::db::queries::{self, insert_update};
+use std::convert::From;
+
+impl rweb::reject::Reject for queries::Error {}
 
 #[derive(Serialize, Deserialize, Schema)]
 struct HtlcInfo {
@@ -13,16 +18,26 @@ struct HtlcInfo {
     pub rate: u64,
 }
 
+impl HtlcInfo {
+    fn into_update(self) -> HtlcUpdate {
+        HtlcUpdate {
+            channel_id: self.channel_id,
+            sats: self.sats,
+            rate: self.rate as i64,
+        }
+    }
+}
+
 #[post("/hedge/htlc")]
 #[openapi(
     tags("node"),
     summary = "Update state of position to adjust to the new HTLC incoming or outcoming from a fiat channel.",
     description = "When Eclar node receives a new HTLC to a fiat channel the endpoint is called with positive amount. If the HTLC is outcoming from the channel, the provided amount has to be negative."
 )]
-fn hedge_htlc(#[data] pool: Pool, body: Json<HtlcInfo>) -> Json<()> {
+async fn hedge_htlc(#[data] pool: Pool, body: Json<HtlcInfo>) -> Result<Json<()>, Rejection> {
     let htlc = body.into_inner();
-
-    Json::from(())
+    insert_update(&pool, UpdateBody::Htlc(htlc.into_update())).await?;
+    Ok(Json::from(()))
 }
 
 pub async fn hedge_api_specs(pool: Pool) -> Result<Spec, Box<dyn Error>> {
