@@ -893,6 +893,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "kollider-client",
+ "kollider-hedge-client",
  "log",
  "maplit",
  "rweb",
@@ -902,6 +903,16 @@ dependencies = [
  "sqlx-database-tester",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "kollider-hedge-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -56,23 +56,25 @@ mod tests {
     use super::*;
     use futures::FutureExt;
     use futures_util::future::TryFutureExt;
-    use std::panic::UnwindSafe;
+    use std::panic::{UnwindSafe, AssertUnwindSafe};
+    use kollider_hedge_client::client::{self, HedgeClient};
 
     const SERVICE_TEST_PORT: u16 = 8098;
+    const SERVICE_TEST_HOST: &str = "127.0.0.1";
 
     async fn run_api_test<Fn, Fut>(pool: Pool, test_body: Fn)
     where
         Fn: FnOnce() -> Fut,
-        Fut: Future<Output = ()> + UnwindSafe,
+        Fut: Future<Output = ()>,
     {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
-            let serve_task = serve_api("127.0.0.1", SERVICE_TEST_PORT, pool);
+            let serve_task = serve_api(SERVICE_TEST_HOST, SERVICE_TEST_PORT, pool);
             futures::pin_mut!(serve_task);
             futures::future::select(serve_task, receiver.map_err(drop)).await;
         });
 
-        let res = test_body().catch_unwind().await;
+        let res = AssertUnwindSafe(test_body()).catch_unwind().await;
 
         sender.send(()).unwrap();
 
@@ -81,6 +83,13 @@ mod tests {
 
     #[sqlx_database_tester::test(pool(variable = "pool"))]
     async fn test_api_hedge() {
-        run_api_test(pool, || async {}).await;
+        run_api_test(pool, || async {
+            let client = HedgeClient::new(&format!("http://{}:{}", SERVICE_TEST_HOST, SERVICE_TEST_PORT));
+            client.hedge_htlc(client::HtlcInfo {
+                channel_id: "aboba".to_owned(),
+                sats: 100,
+                rate: 2500,
+            }).await.unwrap();
+        }).await;
     }
 }

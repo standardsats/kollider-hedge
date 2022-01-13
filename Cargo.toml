@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-    "kollider-hedge"
+    "kollider-hedge",
+    "kollider-hedge-client"
 ]
