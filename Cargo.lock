@@ -891,6 +891,7 @@ dependencies = [
  "env_logger",
  "futures",
  "futures-channel",
+ "futures-util",
  "kollider-client",
  "log",
  "maplit",

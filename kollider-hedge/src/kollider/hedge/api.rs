@@ -1,13 +1,13 @@
-use std::error::Error;
+use crate::kollider::hedge::db::queries::{self, insert_update};
+use crate::kollider::hedge::db::scheme::{HtlcUpdate, UpdateBody};
+use crate::kollider::hedge::db::Pool;
 use rweb::openapi::Spec;
 use rweb::*;
 use serde::{Deserialize, Serialize};
+use std::convert::From;
+use std::error::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
-use crate::kollider::hedge::db::Pool;
-use crate::kollider::hedge::db::scheme::{UpdateBody, HtlcUpdate};
-use crate::kollider::hedge::db::queries::{self, insert_update};
-use std::convert::From;
 
 impl rweb::reject::Reject for queries::Error {}
 
@@ -49,4 +49,38 @@ pub async fn serve_api(host: &str, port: u16, pool: Pool) -> Result<(), Box<dyn 
     let filter = hedge_htlc(pool);
     serve(filter).run((IpAddr::from_str(host)?, port)).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+    use futures_util::future::TryFutureExt;
+    use std::panic::UnwindSafe;
+
+    const SERVICE_TEST_PORT: u16 = 8098;
+
+    async fn run_api_test<Fn, Fut>(pool: Pool, test_body: Fn)
+    where
+        Fn: FnOnce() -> Fut,
+        Fut: Future<Output = ()> + UnwindSafe,
+    {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let serve_task = serve_api("127.0.0.1", SERVICE_TEST_PORT, pool);
+            futures::pin_mut!(serve_task);
+            futures::future::select(serve_task, receiver.map_err(drop)).await;
+        });
+
+        let res = test_body().catch_unwind().await;
+
+        sender.send(()).unwrap();
+
+        assert!(res.is_ok());
+    }
+
+    #[sqlx_database_tester::test(pool(variable = "pool"))]
+    async fn test_api_hedge() {
+        run_api_test(pool, || async {}).await;
+    }
 }
