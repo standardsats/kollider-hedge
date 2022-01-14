@@ -900,6 +900,7 @@ name = "kollider-hedge-client"
 version = "0.1.0"
 dependencies = [
  "kollider-hedge-domain",
+ "log",
  "reqwest",
  "serde",
  "serde_json",

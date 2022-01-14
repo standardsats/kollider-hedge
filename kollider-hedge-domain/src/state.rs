@@ -17,6 +17,8 @@ pub enum StateUpdateErr {
     Htlc(#[from] HtlcUpdateErr),
 }
 
+impl rweb::reject::Reject for StateUpdateErr {}
+
 impl State {
     pub fn new() -> Self {
         State {
@@ -25,22 +27,22 @@ impl State {
         }
     }
 
-    pub fn apply_update(mut self, update: StateUpdate) -> Result<Self, StateUpdateErr> {
+    pub fn apply_update(&mut self, update: StateUpdate) -> Result<(), StateUpdateErr> {
         match update.body {
             UpdateBody::Htlc(htlc) => {
-                self = self.with_htlc(htlc)?;
+                self.with_htlc(htlc)?;
                 self.last_changed = update.created;
-                Ok(self)
+                Ok(())
             }
             UpdateBody::Snapshot(snaphsot) => {
                 self.channels_hedge = snaphsot.channels_hedge;
                 self.last_changed = update.created;
-                Ok(self)
+                Ok(())
             }
         }
     }
 
-    fn with_htlc(mut self, htlc: HtlcUpdate) -> Result<Self, HtlcUpdateErr> {
+    fn with_htlc(&mut self, htlc: HtlcUpdate) -> Result<(), HtlcUpdateErr> {
         let chan_id = htlc.channel_id.clone();
         let new_chan = if let Some(chan) = self.channels_hedge.get(&chan_id) {
             chan.clone().with_htlc(htlc)?
@@ -52,7 +54,7 @@ impl State {
         };
         self.channels_hedge.insert(chan_id, new_chan);
 
-        Ok(self)
+        Ok(())
     }
 
     /// Take ordered chain of updates and collect the accumulated state.
@@ -63,7 +65,7 @@ impl State {
     {
         let mut state = State::new();
         for upd in updates.into_iter() {
-            state = state.apply_update(upd)?;
+            state.apply_update(upd)?;
         }
         Ok(state)
     }

@@ -1,5 +1,7 @@
 use crate::kollider::hedge::db::queries::{self, insert_update};
 use crate::kollider::hedge::db::Pool;
+use ::log::*;
+use chrono::prelude::*;
 use kollider_hedge_domain::api::*;
 use kollider_hedge_domain::state::*;
 use kollider_hedge_domain::update::*;
@@ -9,7 +11,8 @@ use std::convert::From;
 use std::error::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 impl rweb::reject::Reject for queries::Error {}
 
@@ -19,9 +22,24 @@ impl rweb::reject::Reject for queries::Error {}
     summary = "Update state of position to adjust to the new HTLC incoming or outcoming from a fiat channel.",
     description = "When Eclar node receives a new HTLC to a fiat channel the endpoint is called with positive amount. If the HTLC is outcoming from the channel, the provided amount has to be negative."
 )]
-async fn hedge_htlc(#[data] pool: Pool, body: Json<HtlcInfo>) -> Result<Json<()>, Rejection> {
+async fn hedge_htlc(
+    #[data] pool: Pool,
+    #[data] state_mx: Arc<Mutex<State>>,
+    body: Json<HtlcInfo>,
+) -> Result<Json<()>, Rejection> {
     let htlc = body.into_inner();
-    insert_update(&pool, UpdateBody::Htlc(htlc.into_update())).await?;
+    let update = StateUpdate {
+        created: Utc::now().naive_utc(),
+        body: UpdateBody::Htlc(htlc.into_update()),
+    };
+    debug!("Calling hedge_htlc");
+    {
+        let mut state = state_mx.lock().await;
+        insert_update(&pool, update.body.clone()).await?;
+        state.apply_update(update)?;
+        debug!("New state {:?}", state);
+    }
+
     Ok(Json::from(()))
 }
 
@@ -32,17 +50,20 @@ async fn hedge_htlc(#[data] pool: Pool, body: Json<HtlcInfo>) -> Result<Json<()>
     description = "The full state of the server that can be quite slow. The en"
 )]
 async fn query_state(#[data] state_mx: Arc<Mutex<State>>) -> Result<Json<State>, Rejection> {
-    let state = state_mx.lock().unwrap();
+    let state = state_mx.lock().await;
     Ok(Json::from(state.clone()))
 }
 
 pub async fn hedge_api_specs(pool: Pool) -> Result<Spec, Box<dyn Error>> {
-    let (_spec, _) = openapi::spec().build(|| hedge_htlc(pool));
+    let state = Arc::new(Mutex::new(State::default()));
+    let (_spec, _) =
+        openapi::spec().build(|| hedge_htlc(pool, state.clone()).or(query_state(state)));
     Ok(_spec)
 }
 
 pub async fn serve_api(host: &str, port: u16, pool: Pool) -> Result<(), Box<dyn Error>> {
-    let filter = hedge_htlc(pool);
+    let state = Arc::new(Mutex::new(State::default()));
+    let filter = hedge_htlc(pool, state.clone()).or(query_state(state));
     serve(filter).run((IpAddr::from_str(host)?, port)).await;
     Ok(())
 }
@@ -64,6 +85,8 @@ mod tests {
         Fn: FnOnce() -> Fut,
         Fut: Future<Output = ()>,
     {
+        let _ = env_logger::builder().is_test(true).try_init();
+
         let (sender, receiver) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             let serve_task = serve_api(SERVICE_TEST_HOST, SERVICE_TEST_PORT, pool);
@@ -93,6 +116,17 @@ mod tests {
                 })
                 .await
                 .unwrap();
+
+            let state = client.query_state().await.unwrap();
+            assert_eq!(
+                state.channels_hedge,
+                hashmap! {
+                    "aboba".to_owned() => ChannelHedge {
+                        sats: 100,
+                        rate: 2500,
+                    }
+                }
+            );
         })
         .await;
     }

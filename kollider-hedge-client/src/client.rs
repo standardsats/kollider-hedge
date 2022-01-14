@@ -1,7 +1,7 @@
 use kollider_hedge_domain::state::*;
 use kollider_hedge_domain::api::*;
-use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use log::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -28,12 +28,19 @@ impl HedgeClient {
     }
 
     pub async fn hedge_htlc(&self, info: HtlcInfo) -> Result<()> {
-        let path = "/hedge_htlc";
+        let path = "/hedge/htlc";
         let endpoint = format!("{}{}", self.server, path);
-        self.client.post(endpoint).json(&info).build()?;
-        // let response = self.client.execute(request).await?.text().await?;
-        // println!("Response: {}", response);
-        // Ok(serde_json::from_str(&response)?)
+        let request = self.client.post(endpoint).json(&info).build()?;
+        self.client.execute(request).await?.text().await?;
         Ok(())
+    }
+
+    pub async fn query_state(&self) -> Result<State> {
+        let path = "/state";
+        let endpoint = format!("{}{}", self.server, path);
+        let request = self.client.get(endpoint).build()?;
+        let response = self.client.execute(request).await?.text().await?;
+        debug!("Response: {}", response);
+        Ok(serde_json::from_str(&response)?)
     }
 }
