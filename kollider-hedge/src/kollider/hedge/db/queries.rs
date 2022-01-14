@@ -1,7 +1,8 @@
 use super::consts::Pool;
-use super::scheme::*;
 use chrono::prelude::*;
 use futures::StreamExt;
+use kollider_hedge_domain::state::*;
+use kollider_hedge_domain::update::*;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -79,7 +80,6 @@ pub async fn query_state(pool: &Pool) -> Result<State> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::scheme::*;
     use super::*;
 
     #[sqlx_database_tester::test(
@@ -195,7 +195,6 @@ mod tests {
 
     #[sqlx_database_tester::test(pool(variable = "pool"))]
     async fn test_state_fold() {
-
         let snapshot_update = StateSnapshot {
             channels_hedge: hashmap! {
                 "aboba".to_owned() => ChannelHedge {
@@ -217,7 +216,6 @@ mod tests {
             .await
             .unwrap();
 
-
         let htlc_update2 = HtlcUpdate {
             sats: 500,
             rate: 2500,
@@ -226,14 +224,12 @@ mod tests {
         insert_update(&pool, UpdateBody::Htlc(htlc_update2.clone()))
             .await
             .unwrap();
-        let state = query_state(&pool)
-            .await
-            .unwrap();
+        let state = query_state(&pool).await.unwrap();
         assert_eq!(
             state,
             State {
                 last_changed: state.last_changed,
-                channels_hedge: hashmap!{
+                channels_hedge: hashmap! {
                     "aboba".to_owned() => ChannelHedge {
                         sats: 900,
                         rate: 2500,

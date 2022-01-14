@@ -1,3 +1,5 @@
+use kollider_hedge_domain::state::*;
+use kollider_hedge_domain::api::*;
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
@@ -11,14 +13,6 @@ pub enum Error {
 
 /// Alias for a `Result` with the error type `self::Error`.
 pub type Result<T> = std::result::Result<T, Error>;
-
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct HtlcInfo {
-    pub channel_id: String,
-    pub sats: i64,
-    pub rate: u64,
-}
 
 pub struct HedgeClient {
     pub client: reqwest::Client,

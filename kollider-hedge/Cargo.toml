@@ -15,12 +15,13 @@ futures-channel = "0.3"
 futures-util = "0.3.19"
 kollider-client = { git = "https://github.com/standardsats/kollider-client", rev = "30dfdc1703d5b2ca81dec1a1ad1fc719c5f115ab" }
 log = "0.4.14"
-rweb = { version = "0.6", features = ["openapi"] }
+rweb = { version = "0.15.0", features = ["openapi", "chrono"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "migrate", "macros", "postgres", "json", "chrono" ] }
 thiserror = "1.0"
 tokio = { version = "1", features = ["full"] }
+kollider-hedge-domain = { path = "../kollider-hedge-domain" }
 
 [dev-dependencies]
 maplit = "1.0.2"

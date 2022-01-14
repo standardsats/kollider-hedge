@@ -1,7 +1,6 @@
 pub mod consts;
 pub mod migrate;
 pub mod queries;
-pub mod scheme;
 
 pub use self::consts::Pool;
 use sqlx::postgres::PgPoolOptions;

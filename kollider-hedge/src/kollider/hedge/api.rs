@@ -1,32 +1,17 @@
 use crate::kollider::hedge::db::queries::{self, insert_update};
-use crate::kollider::hedge::db::scheme::{HtlcUpdate, UpdateBody};
 use crate::kollider::hedge::db::Pool;
+use kollider_hedge_domain::api::*;
+use kollider_hedge_domain::state::*;
+use kollider_hedge_domain::update::*;
 use rweb::openapi::Spec;
 use rweb::*;
-use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::error::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 impl rweb::reject::Reject for queries::Error {}
-
-#[derive(Serialize, Deserialize, Schema)]
-struct HtlcInfo {
-    pub channel_id: String,
-    pub sats: i64,
-    pub rate: u64,
-}
-
-impl HtlcInfo {
-    fn into_update(self) -> HtlcUpdate {
-        HtlcUpdate {
-            channel_id: self.channel_id,
-            sats: self.sats,
-            rate: self.rate as i64,
-        }
-    }
-}
 
 #[post("/hedge/htlc")]
 #[openapi(
@@ -38,6 +23,17 @@ async fn hedge_htlc(#[data] pool: Pool, body: Json<HtlcInfo>) -> Result<Json<()>
     let htlc = body.into_inner();
     insert_update(&pool, UpdateBody::Htlc(htlc.into_update())).await?;
     Ok(Json::from(()))
+}
+
+#[get("/state")]
+#[openapi(
+    tags("management"),
+    summary = "Return current state of the plugin",
+    description = "The full state of the server that can be quite slow. The en"
+)]
+async fn query_state(#[data] state_mx: Arc<Mutex<State>>) -> Result<Json<State>, Rejection> {
+    let state = state_mx.lock().unwrap();
+    Ok(Json::from(state.clone()))
 }
 
 pub async fn hedge_api_specs(pool: Pool) -> Result<Spec, Box<dyn Error>> {
@@ -56,8 +52,9 @@ mod tests {
     use super::*;
     use futures::FutureExt;
     use futures_util::future::TryFutureExt;
-    use std::panic::{UnwindSafe, AssertUnwindSafe};
-    use kollider_hedge_client::client::{self, HedgeClient};
+    use kollider_hedge_client::client::HedgeClient;
+    use kollider_hedge_domain::api::HtlcInfo;
+    use std::panic::AssertUnwindSafe;
 
     const SERVICE_TEST_PORT: u16 = 8098;
     const SERVICE_TEST_HOST: &str = "127.0.0.1";
@@ -84,12 +81,19 @@ mod tests {
     #[sqlx_database_tester::test(pool(variable = "pool"))]
     async fn test_api_hedge() {
         run_api_test(pool, || async {
-            let client = HedgeClient::new(&format!("http://{}:{}", SERVICE_TEST_HOST, SERVICE_TEST_PORT));
-            client.hedge_htlc(client::HtlcInfo {
-                channel_id: "aboba".to_owned(),
-                sats: 100,
-                rate: 2500,
-            }).await.unwrap();
-        }).await;
+            let client = HedgeClient::new(&format!(
+                "http://{}:{}",
+                SERVICE_TEST_HOST, SERVICE_TEST_PORT
+            ));
+            client
+                .hedge_htlc(HtlcInfo {
+                    channel_id: "aboba".to_owned(),
+                    sats: 100,
+                    rate: 2500,
+                })
+                .await
+                .unwrap();
+        })
+        .await;
     }
 }

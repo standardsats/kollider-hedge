@@ -2,5 +2,6 @@
 
 members = [
     "kollider-hedge",
-    "kollider-hedge-client"
+    "kollider-hedge-client",
+    "kollider-hedge-domain",
 ]
