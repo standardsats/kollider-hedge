@@ -61,8 +61,7 @@ pub async fn hedge_api_specs(pool: Pool) -> Result<Spec, Box<dyn Error>> {
     Ok(_spec)
 }
 
-pub async fn serve_api(host: &str, port: u16, pool: Pool) -> Result<(), Box<dyn Error>> {
-    let state = Arc::new(Mutex::new(State::default()));
+pub async fn serve_api(host: &str, port: u16, pool: Pool, state: Arc<Mutex<State>>) -> Result<(), Box<dyn Error>> {
     let filter = hedge_htlc(pool, state.clone()).or(query_state(state));
     serve(filter).run((IpAddr::from_str(host)?, port)).await;
     Ok(())
@@ -89,7 +88,8 @@ mod tests {
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
-            let serve_task = serve_api(SERVICE_TEST_HOST, SERVICE_TEST_PORT, pool);
+            let state = Arc::new(Mutex::new(State::default()));
+            let serve_task = serve_api(SERVICE_TEST_HOST, SERVICE_TEST_PORT, pool, state);
             futures::pin_mut!(serve_task);
             futures::future::select(serve_task, receiver.map_err(drop)).await;
         });

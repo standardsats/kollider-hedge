@@ -235,6 +235,8 @@ mod tests {
                         rate: 2500,
                     }
                 },
+                opened_orders: vec![],
+                opened_position: None,
             }
         );
     }

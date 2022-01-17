@@ -1,15 +1,19 @@
 mod kollider;
 
 #[cfg(test)]
-#[macro_use] extern crate maplit;
+#[macro_use]
+extern crate maplit;
 
-use crate::kollider::hedge::api::{serve_api, hedge_api_specs};
-use crate::kollider::hedge::db::{create_db_pool};
+use crate::kollider::hedge::api::{hedge_api_specs, serve_api};
+use crate::kollider::hedge::db::create_db_pool;
 use clap::Parser;
 use futures::StreamExt;
 use kollider_api::kollider::{websocket::*, ChannelName};
+use kollider_hedge_domain::state::State;
 use log::*;
 use std::error::Error;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -21,7 +25,12 @@ struct Args {
     #[clap(long, env = "KOLLIDER_API_PASSWORD", hide_env_values = true)]
     password: String,
     /// PostgreSQL connection string
-    #[clap(long, short, default_value = "postgres://kollider:kollider@localhost/kollider_hedge", env = "KOLLIDER_HEDGE_POSTGRES")]
+    #[clap(
+        long,
+        short,
+        default_value = "postgres://kollider:kollider@localhost/kollider_hedge",
+        env = "KOLLIDER_HEDGE_POSTGRES"
+    )]
     dbconnect: String,
     #[clap(subcommand)]
     subcmd: SubCommand,
@@ -54,15 +63,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     match args.subcmd {
         SubCommand::Serve { host, port } => {
-            tokio::spawn(async move {
-                if let Err(e) = listen_websocket(&args.api_secret, &args.api_key, &args.password).await {
-                    error!("Websocket thread error: {}", e);
+            let state = Arc::new(Mutex::new(State::default()));
+            tokio::spawn({
+                let state = state.clone();
+                async move {
+                    if let Err(e) =
+                        listen_websocket(state, &args.api_secret, &args.api_key, &args.password).await
+                    {
+                        error!("Websocket thread error: {}", e);
+                    }
                 }
             });
 
             let pool = create_db_pool(&args.dbconnect).await?;
-
-            serve_api(&host, port, pool).await?;
+            serve_api(&host, port, pool, state).await?;
         }
         SubCommand::Swagger => {
             let pool = create_db_pool(&args.dbconnect).await?;
@@ -75,6 +89,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn listen_websocket(
+    state_mx: Arc<Mutex<State>>,
     api_secret: &str,
     api_key: &str,
     password: &str,
@@ -96,14 +111,16 @@ async fn listen_websocket(
     stdin_tx.unbounded_send(KolliderMsg::FetchPositions {
         _type: FetchPositionsTag::Tag,
     })?;
-    // if let Some(a) = action {
-    //     stdin_tx.unbounded_send(a.to_message())?;
-    // }
     tokio::spawn(kollider_websocket(stdin_rx, msg_sender));
 
     msg_receiver
-        .for_each(|message| async move {
-            info!("Received message: {:?}", message);
+        .for_each(|message| {
+            let state_mx = state_mx.clone();
+            async move {
+                info!("Received message: {:?}", message);
+                let mut state = state_mx.lock().await;
+                state.apply_kollider_message(message);
+            }
         })
         .await;
 

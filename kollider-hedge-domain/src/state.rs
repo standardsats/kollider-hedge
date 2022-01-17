@@ -12,6 +12,7 @@ pub struct State {
     pub last_changed: NaiveDateTime,
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
     pub opened_orders: Vec<KolliderOrder>,
+    pub opened_position: Option<KolliderPosition>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
@@ -35,6 +36,27 @@ impl std::convert::From<OpenOrder> for KolliderOrder {
     }
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
+pub struct KolliderPosition {
+    liquidation_price: f64,
+    leverage: u64,
+    entry_price: u64,
+    quantity: u64,
+    rpnl: f64,
+}
+
+impl std::convert::From<Position> for KolliderPosition {
+    fn from(pos: Position) -> Self {
+        KolliderPosition {
+            liquidation_price: pos.bankruptcy_price,
+            leverage: pos.leverage as u64,
+            entry_price: pos.entry_price as u64,
+            quantity: pos.quantity as u64,
+            rpnl: pos.rpnl,
+        }
+    }
+}
+
 #[derive(Error, Debug, PartialEq)]
 pub enum StateUpdateErr {
     #[error("State update error: {0}")]
@@ -51,6 +73,7 @@ impl State {
             last_changed: Utc::now().naive_utc(),
             channels_hedge: HashMap::new(),
             opened_orders: vec![],
+            opened_position: None,
         }
     }
 
@@ -102,26 +125,20 @@ impl State {
         if let KolliderMsg::Tagged(tmsg) = msg {
             match tmsg {
                 KolliderTaggedMsg::OpenOrders { open_orders } => {
+                    self.opened_orders.clear();
                     if let Some(orders) = open_orders.get(HEDGING_SYMBOL) {
-                        orders.iter().for_each(|o| self.appy_open_order(o));
+                        orders.iter().for_each(|o| self.opened_orders.push(o.clone().into()));
                     }
                 }
                 KolliderTaggedMsg::Positions { positions } => {
+                    self.opened_position = None;
                     if let Some(position) = positions.get(HEDGING_SYMBOL) {
-                        self.appy_open_position(position);
+                        self.opened_position = Some(position.clone().into());
                     }
                 }
                 _ => (),
             }
         }
-    }
-
-    fn appy_open_order(&mut self, order: &OpenOrder) {
-
-    }
-
-    fn appy_open_position(&mut self, position: &Position) {
-
     }
 }
 
