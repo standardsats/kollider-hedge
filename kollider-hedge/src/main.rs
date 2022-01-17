@@ -90,6 +90,12 @@ async fn listen_websocket(
         channels,
         symbols,
     })?;
+    stdin_tx.unbounded_send(KolliderMsg::FetchOpenOrders {
+        _type: FetchOpenOrdersTag::Tag,
+    })?;
+    stdin_tx.unbounded_send(KolliderMsg::FetchPositions {
+        _type: FetchPositionsTag::Tag,
+    })?;
     // if let Some(a) = action {
     //     stdin_tx.unbounded_send(a.to_message())?;
     // }
@@ -97,7 +103,7 @@ async fn listen_websocket(
 
     msg_receiver
         .for_each(|message| async move {
-            // trace!("Received message: {:?}", message);
+            info!("Received message: {:?}", message);
         })
         .await;
 

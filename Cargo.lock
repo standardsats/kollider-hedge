@@ -846,7 +846,7 @@ dependencies = [
 [[package]]
 name = "kollider-client"
 version = "0.1.0"
-source = "git+https://github.com/standardsats/kollider-client?rev=30dfdc1703d5b2ca81dec1a1ad1fc719c5f115ab#30dfdc1703d5b2ca81dec1a1ad1fc719c5f115ab"
+source = "git+https://github.com/standardsats/kollider-client?rev=fb90c3d51aad8a4b93379b482fecd41e20a27a95#fb90c3d51aad8a4b93379b482fecd41e20a27a95"
 dependencies = [
  "base64",
  "chrono",
@@ -857,6 +857,7 @@ dependencies = [
  "hmac 0.12.0",
  "log",
  "reqwest",
+ "rweb",
  "serde",
  "serde-aux",
  "serde_json",
@@ -865,7 +866,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite 0.16.1",
- "tungstenite 0.16.0",
  "url",
  "uuid",
 ]
@@ -912,6 +912,7 @@ name = "kollider-hedge-domain"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "kollider-client",
  "reqwest",
  "rweb",
  "serde",
