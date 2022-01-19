@@ -896,6 +896,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "kollider-hedge-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "futures",
+ "futures-channel",
+ "futures-util",
+ "kollider-client",
+ "kollider-hedge-client",
+ "kollider-hedge-domain",
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "kollider-hedge-client"
 version = "0.1.0"
 dependencies = [

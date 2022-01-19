@@ -1,0 +1,21 @@
+[package]
+name = "kollider-hedge-cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "3.0.0-rc.4", features = ["derive", "env"] }
+env_logger = { version = "0.9.0" }
+futures = "0.3.19"
+futures-channel = "0.3"
+futures-util = "0.3.19"
+kollider-client = { git = "https://github.com/standardsats/kollider-client", rev = "fb90c3d51aad8a4b93379b482fecd41e20a27a95", features = [ "openapi", "ws" ] }
+kollider-hedge-client = { path = "../kollider-hedge-client" }
+log = "0.4.14"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tokio = { version = "1", features = ["full"] }
+kollider-hedge-domain = { path = "../kollider-hedge-domain" }

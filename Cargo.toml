@@ -2,6 +2,7 @@
 
 members = [
     "kollider-hedge",
+    "kollider-hedge-cli",
     "kollider-hedge-client",
     "kollider-hedge-domain",
 ]
