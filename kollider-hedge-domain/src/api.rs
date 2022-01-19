@@ -1,6 +1,6 @@
-use rweb::Schema;
-use serde::{Serialize, Deserialize};
 use super::update::*;
+use rweb::Schema;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Schema)]
 pub struct HtlcInfo {

@@ -1,7 +1,7 @@
 use super::update::*;
 use chrono::prelude::*;
-use kollider_api::kollider::websocket::data::*;
 use kollider_api::kollider::api::OrderSide;
+use kollider_api::kollider::websocket::data::*;
 use rweb::Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -127,7 +127,9 @@ impl State {
                 KolliderTaggedMsg::OpenOrders { open_orders } => {
                     self.opened_orders.clear();
                     if let Some(orders) = open_orders.get(HEDGING_SYMBOL) {
-                        orders.iter().for_each(|o| self.opened_orders.push(o.clone().into()));
+                        orders
+                            .iter()
+                            .for_each(|o| self.opened_orders.push(o.clone().into()));
                     }
                 }
                 KolliderTaggedMsg::Positions { positions } => {

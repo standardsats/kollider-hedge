@@ -61,7 +61,12 @@ pub async fn hedge_api_specs(pool: Pool) -> Result<Spec, Box<dyn Error>> {
     Ok(_spec)
 }
 
-pub async fn serve_api(host: &str, port: u16, pool: Pool, state: Arc<Mutex<State>>) -> Result<(), Box<dyn Error>> {
+pub async fn serve_api(
+    host: &str,
+    port: u16,
+    pool: Pool,
+    state: Arc<Mutex<State>>,
+) -> Result<(), Box<dyn Error>> {
     let filter = hedge_htlc(pool, state.clone()).or(query_state(state));
     serve(filter).run((IpAddr::from_str(host)?, port)).await;
     Ok(())

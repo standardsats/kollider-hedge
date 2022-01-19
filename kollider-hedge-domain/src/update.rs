@@ -185,7 +185,6 @@ pub struct StateSnapshot {
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,7 +362,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_weighted_summ_sub_05() {
         let hedge = ChannelHedge {
@@ -377,13 +375,7 @@ mod tests {
         };
 
         let new_hedge = hedge.with_htlc(upd);
-        assert_eq!(
-            new_hedge,
-            Ok(ChannelHedge {
-                sats: 1,
-                rate: 0,
-            })
-        );
+        assert_eq!(new_hedge, Ok(ChannelHedge { sats: 1, rate: 0 }));
     }
 
     #[test]
