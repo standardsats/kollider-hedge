@@ -5,7 +5,7 @@ mod kollider;
 extern crate maplit;
 
 use crate::kollider::hedge::api::{hedge_api_specs, serve_api};
-use crate::kollider::hedge::db::create_db_pool;
+use crate::kollider::hedge::db::{create_db_pool, queries::query_state};
 use clap::Parser;
 use futures::StreamExt;
 use kollider_api::kollider::{websocket::*, ChannelName};
@@ -63,20 +63,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     match args.subcmd {
         SubCommand::Serve { host, port } => {
-            let state = Arc::new(Mutex::new(State::default()));
+            let pool = create_db_pool(&args.dbconnect).await?;
+
+            let state = query_state(&pool).await?;
+            let state_mx = Arc::new(Mutex::new(state));
             tokio::spawn({
-                let state = state.clone();
+                let state = state_mx.clone();
                 async move {
                     if let Err(e) =
-                        listen_websocket(state, &args.api_secret, &args.api_key, &args.password).await
+                        listen_websocket(state, &args.api_secret, &args.api_key, &args.password)
+                            .await
                     {
                         error!("Websocket thread error: {}", e);
                     }
                 }
             });
 
-            let pool = create_db_pool(&args.dbconnect).await?;
-            serve_api(&host, port, pool, state).await?;
+            serve_api(&host, port, pool, state_mx).await?;
         }
         SubCommand::Swagger => {
             let pool = create_db_pool(&args.dbconnect).await?;
