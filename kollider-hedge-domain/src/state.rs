@@ -36,10 +36,20 @@ impl std::convert::From<OpenOrder> for KolliderOrder {
     }
 }
 
+impl KolliderOrder {
+    pub fn required_margin(&self) -> u64 {
+        let real_leverage = self.leverage as f64 / 100.0;
+        let real_price = self.price as f64 / 10.0;
+        let margin = self.quantity as f64 * (100_000_000.0 / real_price) / real_leverage;
+        margin.ceil() as u64
+    }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
 pub struct KolliderPosition {
     liquidation_price: f64,
     leverage: u64,
+    entry_value: u64,
     entry_price: u64,
     quantity: u64,
     rpnl: f64,
@@ -50,6 +60,7 @@ impl std::convert::From<Position> for KolliderPosition {
         KolliderPosition {
             liquidation_price: pos.bankruptcy_price,
             leverage: pos.leverage as u64,
+            entry_value: pos.entry_value.floor() as u64,
             entry_price: pos.entry_price as u64,
             quantity: pos.quantity as u64,
             rpnl: pos.rpnl,
@@ -66,6 +77,9 @@ pub enum StateUpdateErr {
 impl rweb::reject::Reject for StateUpdateErr {}
 
 pub const HEDGING_SYMBOL: &str = "BTCUSD.PERP";
+/// How much satoshis we can have unhedged or overhedged. That allows to avoid
+/// frequent order opening when channels balances changes by small amount.
+pub const ALLOWED_POSITION_GAP: i64 = 100;
 
 impl State {
     pub fn new() -> Self {
@@ -142,10 +156,118 @@ impl State {
             }
         }
     }
+
+    /// Get total amount of sats that we need to hedge at the moment
+    pub fn hedge_capacity(&self) -> u64 {
+        self.channels_hedge.iter().map(|(_, v)| v.sats as u64).sum()
+    }
+
+    /// Get total amount of sats that we request for short positions (buying stables)
+    pub fn short_orders(&self) -> u64 {
+        self.opened_orders
+            .iter()
+            .filter(|o| o.side == OrderSide::Ask)
+            .map(|o| o.required_margin())
+            .sum()
+    }
+
+    /// Get total amount of sats that we request for long positions (selling stables)
+    pub fn long_orders(&self) -> u64 {
+        unimplemented!();
+    }
+
+    /// Get average weighted price over all hedged channels
+    pub fn hedge_avg_price(&self) -> u64 {
+        unimplemented!();
+    }
+
+    /// Get amount of sats locked in the position
+    pub fn position_volume(&self) -> u64 {
+        self.opened_position.as_ref().map_or(0, |p| p.entry_value)
+    }
+
+    /// Return actions that we need to execute based on current state of service
+    ///
+    /// TODO: React to situation when we have Bid and Ask orders that negate each other.
+    pub fn get_nex_action(&self) -> Vec<StateAction> {
+        let mut actions = vec![];
+
+        let hcap = self.hedge_capacity() as i64;
+        let short_orders = self.short_orders() as i64;
+        let long_orders = self.long_orders() as i64;
+        let avg_price = self.hedge_avg_price();
+        let pos_volume: i64 = self.position_volume() as i64;
+        let pos_short = pos_volume + short_orders;
+        let pos_long = pos_volume - long_orders;
+        if hcap > pos_short + ALLOWED_POSITION_GAP {
+            assert!(
+                pos_short <= hcap,
+                "Sats overflow in order opening: {} <= {}",
+                pos_short,
+                hcap
+            );
+            let action = StateAction::OpenOrder {
+                sats: (hcap - pos_short) as u64,
+                price: avg_price,
+                side: OrderSide::Bid,
+            };
+            actions.push(action);
+        } else if hcap < pos_long - ALLOWED_POSITION_GAP {
+            assert!(
+                hcap <= pos_long,
+                "Sats overflow in order opening: {} <= {}",
+                hcap,
+                pos_long
+            );
+            let action = StateAction::OpenOrder {
+                sats: (pos_long - hcap) as u64,
+                price: avg_price,
+                side: OrderSide::Ask,
+            };
+            actions.push(action);
+        }
+
+        actions
+    }
 }
 
 impl Default for State {
     fn default() -> Self {
         State::new()
+    }
+}
+
+pub enum StateAction {
+    OpenOrder {
+        sats: u64,
+        price: u64,
+        /// Bid for selling sats, Ask for buying sats back
+        side: OrderSide,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_margin_order() {
+        let order = KolliderOrder {
+            id: 0,
+            leverage: 100,
+            price: 500000,
+            quantity: 1,
+            side: OrderSide::Ask,
+        };
+        assert_eq!(order.required_margin(), 2000);
+
+        let order = KolliderOrder {
+            id: 0,
+            leverage: 200,
+            price: 500000,
+            quantity: 1,
+            side: OrderSide::Ask,
+        };
+        assert_eq!(order.required_margin(), 1000);
     }
 }
