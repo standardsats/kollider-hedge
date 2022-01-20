@@ -846,7 +846,7 @@ dependencies = [
 [[package]]
 name = "kollider-client"
 version = "0.1.0"
-source = "git+https://github.com/standardsats/kollider-client?rev=fb90c3d51aad8a4b93379b482fecd41e20a27a95#fb90c3d51aad8a4b93379b482fecd41e20a27a95"
+source = "git+https://github.com/standardsats/kollider-client?rev=8d73db9a1185cce291316b2a0915d3dbdbb4ec37#8d73db9a1185cce291316b2a0915d3dbdbb4ec37"
 dependencies = [
  "base64",
  "chrono",
