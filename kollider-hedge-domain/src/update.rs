@@ -9,7 +9,7 @@ use thiserror::Error;
 /// All database updates are collected to a single table that
 /// allows to reconstruct current state of the system by replaying
 /// all events until required timestamp.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct StateUpdate {
     pub created: NaiveDateTime,
     pub body: UpdateBody,

@@ -4,16 +4,18 @@ mod kollider;
 #[macro_use]
 extern crate maplit;
 
+use kollider_api::kollider::{KolliderMsg, KolliderTaggedMsg};
 use crate::kollider::hedge::api::{hedge_api_specs, serve_api};
 use crate::kollider::hedge::db::{create_db_pool, queries::query_state};
 use clap::Parser;
 use futures::StreamExt;
-use kollider_api::kollider::{websocket::*, ChannelName};
-use kollider_hedge_domain::state::{State, state_action_worker};
+use kollider_api::kollider::{websocket::*, ChannelName, MarginType, OrderType, SettlementType};
+use kollider_hedge_domain::state::{State, StateAction, state_action_worker, HEDGING_SYMBOL};
 use log::*;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
+use futures_channel::mpsc::{UnboundedSender, UnboundedReceiver};
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -68,11 +70,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let state = query_state(&pool).await?;
             let state_mx = Arc::new(Mutex::new(state));
             let state_notify = Arc::new(Notify::new());
+            let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
+            let auth_notify = Arc::new(Notify::new());
             tokio::spawn({
                 let state = state_mx.clone();
+                let state_notify = state_notify.clone();
+                let stdin_tx = stdin_tx.clone();
+                let auth_notify = auth_notify.clone();
                 async move {
+                    let ws_auth = WebsocketAuth {
+                        api_secret: &args.api_secret,
+                        api_key: &args.api_key,
+                        password: &args.password,
+                    };
                     if let Err(e) =
-                        listen_websocket(state, &args.api_secret, &args.api_key, &args.password)
+                        listen_websocket(stdin_tx, stdin_rx, state, state_notify, auth_notify, ws_auth)
                             .await
                     {
                         error!("Websocket thread error: {}", e);
@@ -82,10 +94,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
             tokio::spawn({
                 let state = state_mx.clone();
                 let state_notify = state_notify.clone();
+                let stdin_tx = stdin_tx.clone();
+                let auth_notify = auth_notify.clone();
                 async move {
-                    state_action_worker(state, state_notify, |action| async move {
-                        log::info!("Executing action: {:?}", action);
-                        Ok(())
+                    auth_notify.notified().await;
+                    state_action_worker(state, state_notify, |action| {
+                        let stdin_tx = stdin_tx.clone();
+                        async move {
+                            log::info!("Executing action: {:?}", action);
+                            match action {
+                                StateAction::OpenOrder { sats, price, side } => {
+                                    let usd_price = 10 * 100_000_000 / price;
+                                    let quantity = (sats as f64 / price as f64).ceil() as u64;
+                                    log::info!("Price {} 10*USD/BTC", usd_price);
+                                    log::info!("Quantity {}", quantity);
+                                    stdin_tx.unbounded_send(KolliderMsg::Order {
+                                        _type: OrderTag::Tag,
+                                        price: usd_price,
+                                        quantity,
+                                        symbol: HEDGING_SYMBOL.to_owned(),
+                                        leverage: 100,
+                                        side,
+                                        margin_type: MarginType::Isolated,
+                                        order_type: OrderType::Limit,
+                                        settlement_type: SettlementType::Delayed,
+                                        ext_order_id: "".to_owned(), // TODO: generate UUID here
+                                    })?
+                                },
+                                StateAction::CloseOrder { order_id } => {
+                                    stdin_tx.unbounded_send(KolliderMsg::CancelOrder {
+                                        _type: CancelOrderTag::Tag,
+                                        order_id,
+                                        symbol: HEDGING_SYMBOL.to_owned(),
+                                        settlement_type: SettlementType::Delayed,
+                                    })?
+                                }
+                            }
+                            Ok(())
+                        }
                     }).await;
                 }
             });
@@ -102,15 +148,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+struct WebsocketAuth<'a> {
+    api_secret: &'a str,
+    api_key: &'a str,
+    password: &'a str,
+}
+
 async fn listen_websocket(
+    stdin_tx: UnboundedSender<KolliderMsg>,
+    stdin_rx: UnboundedReceiver<KolliderMsg>,
     state_mx: Arc<Mutex<State>>,
-    api_secret: &str,
-    api_key: &str,
-    password: &str,
+    state_notify: Arc<Notify>,
+    auth_notify: Arc<Notify>,
+    ws_auth: WebsocketAuth<'_>,
 ) -> Result<(), Box<dyn Error>> {
-    let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
     let (msg_sender, msg_receiver) = futures_channel::mpsc::unbounded();
-    let auth_msg = make_user_auth(api_secret, api_key, password)?;
+    let auth_msg = make_user_auth(ws_auth.api_secret, ws_auth.api_key, ws_auth.password)?;
     let channels = vec![ChannelName::IndexValues];
     let symbols = vec![".BTCUSD".to_owned()];
     stdin_tx.unbounded_send(auth_msg)?;
@@ -130,10 +183,19 @@ async fn listen_websocket(
     msg_receiver
         .for_each(|message| {
             let state_mx = state_mx.clone();
+            let state_notify = state_notify.clone();
+            let auth_notify = auth_notify.clone();
             async move {
                 info!("Received message: {:?}", message);
                 let mut state = state_mx.lock().await;
-                state.apply_kollider_message(message);
+                let changed = state.apply_kollider_message(message.clone());
+                if changed {
+                    state_notify.notify_one();
+                }
+
+                if let KolliderMsg::Tagged(KolliderTaggedMsg::Authenticate{..}) = message {
+                    auth_notify.notify_one();
+                }
             }
         })
         .await;

@@ -139,8 +139,8 @@ impl State {
         Ok(state)
     }
 
-    /// Save information from Kollider WS API
-    pub fn apply_kollider_message(&mut self, msg: KolliderMsg) {
+    /// Save information from Kollider WS API, return true fi the state is modified
+    pub fn apply_kollider_message(&mut self, msg: KolliderMsg) -> bool {
         if let KolliderMsg::Tagged(tmsg) = msg {
             match tmsg {
                 KolliderTaggedMsg::OpenOrders { open_orders } => {
@@ -149,17 +149,20 @@ impl State {
                         orders
                             .iter()
                             .for_each(|o| self.opened_orders.push(o.clone().into()));
+                        return true;
                     }
                 }
                 KolliderTaggedMsg::Positions { positions } => {
                     self.opened_position = None;
                     if let Some(position) = positions.get(HEDGING_SYMBOL) {
                         self.opened_position = Some(position.clone().into());
+                        return true;
                     }
                 }
                 _ => (),
             }
         }
+        false
     }
 
     /// Calculate total hedge position across all channels

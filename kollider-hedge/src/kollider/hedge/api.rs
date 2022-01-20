@@ -36,8 +36,8 @@ async fn hedge_htlc(
     debug!("Calling hedge_htlc");
     {
         let mut state = state_mx.lock().await;
-        insert_update(&pool, update.body.clone()).await?;
-        state.apply_update(update)?;
+        state.apply_update(update.clone())?;
+        insert_update(&pool, update.body).await?;
         state_notify.notify_one();
         debug!("New state {:?}", state);
     }
