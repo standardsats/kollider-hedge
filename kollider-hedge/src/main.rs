@@ -13,7 +13,7 @@ use kollider_hedge_domain::state::{State, state_action_worker};
 use log::*;
 use std::error::Error;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let state = query_state(&pool).await?;
             let state_mx = Arc::new(Mutex::new(state));
+            let state_notify = Arc::new(Notify::new());
             tokio::spawn({
                 let state = state_mx.clone();
                 async move {
@@ -80,15 +81,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             });
             tokio::spawn({
                 let state = state_mx.clone();
+                let state_notify = state_notify.clone();
                 async move {
-                    state_action_worker(state, |action| async move {
+                    state_action_worker(state, state_notify, |action| async move {
                         log::info!("Executing action: {:?}", action);
                         Ok(())
                     }).await;
                 }
             });
 
-            serve_api(&host, port, pool, state_mx).await?;
+            serve_api(&host, port, pool, state_mx, state_notify).await?;
         }
         SubCommand::Swagger => {
             let pool = create_db_pool(&args.dbconnect).await?;

@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
-use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
 pub struct State {
@@ -225,7 +224,7 @@ impl State {
         let pos_short = pos_volume + short_orders;
         let pos_long = pos_volume - long_orders;
         trace!("hcap {} > pos_short {} + gap {}", hcap, pos_short, ALLOWED_POSITION_GAP);
-        trace!("hcap {} < pos_long {} - gap {}", hcap, pos_short, ALLOWED_POSITION_GAP);
+        trace!("hcap {} < pos_long {} - gap {}", hcap, pos_long, ALLOWED_POSITION_GAP);
         if hcap > pos_short + ALLOWED_POSITION_GAP {
             assert!(
                 pos_short <= hcap,
@@ -272,6 +271,9 @@ pub enum StateAction {
         /// Bid for selling sats, Ask for buying sats back
         side: OrderSide,
     },
+    CloseOrder {
+        order_id: u64,
+    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq)]
@@ -280,10 +282,10 @@ pub enum NextActionError {
     TotalHedge(#[from] HtlcUpdateErr),
 }
 
-/// Polls current state periodically and
-pub async fn state_action_worker<F, Fut>(state_mx: Arc<Mutex<State>>, execute_action: F)
+/// Recalculate actions when state is changed
+pub async fn state_action_worker<F, Fut>(state_mx: Arc<Mutex<State>>, state_notify: Arc<Notify>, execute_action: F)
 where
-    F: FnOnce(StateAction) -> Fut + Copy,
+    F: Fn(StateAction) -> Fut,
     Fut: Future<Output = Result<(), Box<dyn Error>>>,
 {
     loop {
@@ -302,7 +304,7 @@ where
             }
             Err(e) => log::error!("Failed to calculate next state action: {}", e),
         }
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        state_notify.notified().await;
     }
 }
 
