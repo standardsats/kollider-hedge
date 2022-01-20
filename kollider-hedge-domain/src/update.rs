@@ -133,7 +133,7 @@ pub struct ChannelHedge {
     pub rate: Sats,
 }
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum HtlcUpdateErr {
     #[error("Balance in sats is lower than update value. Was {0}, update {1}, new {2}")]
     InsufficientSatsBalance(Sats, Sats, Sats),
@@ -144,6 +144,14 @@ pub enum HtlcUpdateErr {
 }
 
 impl ChannelHedge {
+    pub fn combine(self, other: &ChannelHedge) -> Result<ChannelHedge, HtlcUpdateErr> {
+        self.with_htlc(HtlcUpdate {
+            channel_id: "".to_owned(),
+            sats: other.sats,
+            rate: other.rate,
+        })
+    }
+
     pub fn with_htlc(self, htlc: HtlcUpdate) -> Result<ChannelHedge, HtlcUpdateErr> {
         if self.sats + htlc.sats < 0 {
             return Err(HtlcUpdateErr::InsufficientSatsBalance(

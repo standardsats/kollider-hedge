@@ -9,7 +9,7 @@ use crate::kollider::hedge::db::{create_db_pool, queries::query_state};
 use clap::Parser;
 use futures::StreamExt;
 use kollider_api::kollider::{websocket::*, ChannelName};
-use kollider_hedge_domain::state::State;
+use kollider_hedge_domain::state::{State, state_action_worker};
 use log::*;
 use std::error::Error;
 use std::sync::Arc;
@@ -76,6 +76,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     {
                         error!("Websocket thread error: {}", e);
                     }
+                }
+            });
+            tokio::spawn({
+                let state = state_mx.clone();
+                async move {
+                    state_action_worker(state, |action| async move {
+                        log::info!("Executing action: {:?}", action);
+                        Ok(())
+                    }).await;
                 }
             });
 

@@ -1,11 +1,17 @@
 use super::update::*;
 use chrono::prelude::*;
+use futures::Future;
 use kollider_api::kollider::api::OrderSide;
 use kollider_api::kollider::websocket::data::*;
+use log::*;
 use rweb::Schema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error;
+use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
 pub struct State {
@@ -157,9 +163,28 @@ impl State {
         }
     }
 
+    /// Calculate total hedge position across all channels
+    pub fn total_hedge(&self) -> Result<ChannelHedge, HtlcUpdateErr> {
+        let init_hedge = ChannelHedge { sats: 0, rate: 1 };
+        self.channels_hedge
+            .iter()
+            .try_fold(init_hedge, |acc, (_, h)| acc.combine(h))
+    }
+
     /// Get total amount of sats that we need to hedge at the moment
     pub fn hedge_capacity(&self) -> u64 {
         self.channels_hedge.iter().map(|(_, v)| v.sats as u64).sum()
+    }
+
+    /// Get average weighted price over all hedged channels
+    pub fn hedge_avg_price(&self) -> Result<u64, HtlcUpdateErr> {
+        let final_hedge = self.total_hedge()?;
+        assert!(
+            final_hedge.rate > 0,
+            "Total rate is negative! Rate: {}",
+            final_hedge.rate
+        );
+        Ok(final_hedge.rate as u64)
     }
 
     /// Get total amount of sats that we request for short positions (buying stables)
@@ -173,12 +198,11 @@ impl State {
 
     /// Get total amount of sats that we request for long positions (selling stables)
     pub fn long_orders(&self) -> u64 {
-        unimplemented!();
-    }
-
-    /// Get average weighted price over all hedged channels
-    pub fn hedge_avg_price(&self) -> u64 {
-        unimplemented!();
+        self.opened_orders
+            .iter()
+            .filter(|o| o.side == OrderSide::Bid)
+            .map(|o| o.required_margin())
+            .sum()
     }
 
     /// Get amount of sats locked in the position
@@ -189,16 +213,19 @@ impl State {
     /// Return actions that we need to execute based on current state of service
     ///
     /// TODO: React to situation when we have Bid and Ask orders that negate each other.
-    pub fn get_nex_action(&self) -> Vec<StateAction> {
+    pub fn get_nex_action(&self) -> Result<Vec<StateAction>, NextActionError> {
         let mut actions = vec![];
 
+        trace!("Calculation if we need to open new order");
         let hcap = self.hedge_capacity() as i64;
         let short_orders = self.short_orders() as i64;
         let long_orders = self.long_orders() as i64;
-        let avg_price = self.hedge_avg_price();
+        let avg_price = self.hedge_avg_price()?;
         let pos_volume: i64 = self.position_volume() as i64;
         let pos_short = pos_volume + short_orders;
         let pos_long = pos_volume - long_orders;
+        trace!("hcap {} > pos_short {} + gap {}", hcap, pos_short, ALLOWED_POSITION_GAP);
+        trace!("hcap {} < pos_long {} - gap {}", hcap, pos_short, ALLOWED_POSITION_GAP);
         if hcap > pos_short + ALLOWED_POSITION_GAP {
             assert!(
                 pos_short <= hcap,
@@ -227,7 +254,7 @@ impl State {
             actions.push(action);
         }
 
-        actions
+        Ok(actions)
     }
 }
 
@@ -237,6 +264,7 @@ impl Default for State {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum StateAction {
     OpenOrder {
         sats: u64,
@@ -244,6 +272,38 @@ pub enum StateAction {
         /// Bid for selling sats, Ask for buying sats back
         side: OrderSide,
     },
+}
+
+#[derive(Debug, Error, Clone, PartialEq)]
+pub enum NextActionError {
+    #[error("Total hedge position calculation error: {0}")]
+    TotalHedge(#[from] HtlcUpdateErr),
+}
+
+/// Polls current state periodically and
+pub async fn state_action_worker<F, Fut>(state_mx: Arc<Mutex<State>>, execute_action: F)
+where
+    F: FnOnce(StateAction) -> Fut + Copy,
+    Fut: Future<Output = Result<(), Box<dyn Error>>>,
+{
+    loop {
+        let mactions = {
+            let state = state_mx.lock().await;
+            state.get_nex_action()
+        };
+        match mactions {
+            Ok(actions) => {
+                for action in actions {
+                    let res = execute_action(action).await;
+                    if let Err(e) = res {
+                        log::error!("State action worker failed: {}", e);
+                    }
+                }
+            }
+            Err(e) => log::error!("Failed to calculate next state action: {}", e),
+        }
+        tokio::time::sleep(Duration::from_secs(10)).await;
+    }
 }
 
 #[cfg(test)]
