@@ -871,6 +871,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "kollider-client"
+version = "0.1.0"
+source = "git+https://github.com/standardsats/kollider-client?rev=cfabcd9ec38e2c61d7de278ebc4efa6a73b985a1#cfabcd9ec38e2c61d7de278ebc4efa6a73b985a1"
+dependencies = [
+ "base64",
+ "chrono",
+ "clap",
+ "crypto-common",
+ "futures",
+ "futures-channel",
+ "hmac 0.12.0",
+ "log",
+ "reqwest",
+ "rweb",
+ "serde",
+ "serde-aux",
+ "serde_json",
+ "sha2 0.10.0",
+ "shellfish",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite 0.16.1",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "kollider-hedge"
 version = "0.1.0"
 dependencies = [
@@ -881,7 +908,7 @@ dependencies = [
  "futures",
  "futures-channel",
  "futures-util",
- "kollider-client",
+ "kollider-client 0.1.0 (git+https://github.com/standardsats/kollider-client?rev=cfabcd9ec38e2c61d7de278ebc4efa6a73b985a1)",
  "kollider-hedge-client",
  "kollider-hedge-domain",
  "log",
@@ -893,6 +920,7 @@ dependencies = [
  "sqlx-database-tester",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -904,7 +932,7 @@ dependencies = [
  "futures",
  "futures-channel",
  "futures-util",
- "kollider-client",
+ "kollider-client 0.1.0 (git+https://github.com/standardsats/kollider-client?rev=8d73db9a1185cce291316b2a0915d3dbdbb4ec37)",
  "kollider-hedge-client",
  "kollider-hedge-domain",
  "log",
@@ -932,7 +960,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures",
- "kollider-client",
+ "kollider-client 0.1.0 (git+https://github.com/standardsats/kollider-client?rev=cfabcd9ec38e2c61d7de278ebc4efa6a73b985a1)",
  "log",
  "reqwest",
  "rweb",

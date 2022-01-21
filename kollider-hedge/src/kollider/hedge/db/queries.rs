@@ -229,6 +229,8 @@ mod tests {
             state,
             State {
                 last_changed: state.last_changed,
+                balance: None,
+                ticker: None,
                 channels_hedge: hashmap! {
                     "aboba".to_owned() => ChannelHedge {
                         sats: 900,
@@ -237,6 +239,7 @@ mod tests {
                 },
                 opened_orders: vec![],
                 opened_position: None,
+                scheduled_actions: vec![],
             }
         );
     }

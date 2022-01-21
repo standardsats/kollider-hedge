@@ -16,6 +16,7 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 use futures_channel::mpsc::{UnboundedSender, UnboundedReceiver};
+use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -114,11 +115,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         quantity,
                                         symbol: HEDGING_SYMBOL.to_owned(),
                                         leverage: 100,
-                                        side,
+                                        side: side.inverse(),
                                         margin_type: MarginType::Isolated,
                                         order_type: OrderType::Limit,
                                         settlement_type: SettlementType::Delayed,
-                                        ext_order_id: "".to_owned(), // TODO: generate UUID here
+                                        ext_order_id: Uuid::new_v4()
+                                            .to_hyphenated()
+                                            .encode_lower(&mut Uuid::encode_buffer())
+                                            .to_owned(),
                                     })?
                                 },
                                 StateAction::CloseOrder { order_id } => {
@@ -180,13 +184,21 @@ async fn listen_websocket(
     })?;
     tokio::spawn(kollider_websocket(stdin_rx, msg_sender));
 
+    let mut counter = 0;
     msg_receiver
         .for_each(|message| {
             let state_mx = state_mx.clone();
             let state_notify = state_notify.clone();
             let auth_notify = auth_notify.clone();
             async move {
-                info!("Received message: {:?}", message);
+                if let KolliderMsg::Tagged(KolliderTaggedMsg::IndexValues(v)) = &message {
+                    counter += 1;
+                    if counter % 10 == 0 {
+                        info!("Received index: {:?}", v);
+                    }
+                } else {
+                    info!("Received message: {:?}", message);
+                }
                 let mut state = state_mx.lock().await;
                 let changed = state.apply_kollider_message(message.clone());
                 if changed {

@@ -15,9 +15,16 @@ use tokio::sync::{Mutex, Notify};
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
 pub struct State {
     pub last_changed: NaiveDateTime,
+    /// Balance in BTC on Kollider
+    pub balance: Option<f64>,
+    /// Price of BTC/USD reported by Kollider
+    pub ticker: Option<f64>,
     pub channels_hedge: HashMap<ChannelId, ChannelHedge>,
-    pub opened_orders: Vec<KolliderOrder>,
+    pub opened_orders: Option<Vec<KolliderOrder>>,
     pub opened_position: Option<KolliderPosition>,
+    // TODO: put orders in progress of opening here
+    /// Cache actions that we need to execute to avoid replaying them before they are completed
+    pub scheduled_actions: Vec<StateAction>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
@@ -82,17 +89,22 @@ pub enum StateUpdateErr {
 impl rweb::reject::Reject for StateUpdateErr {}
 
 pub const HEDGING_SYMBOL: &str = "BTCUSD.PERP";
-/// How much satoshis we can have unhedged or overhedged. That allows to avoid
+pub const INDEX_BTC_USD: &str = ".BTCUSD";
+
+/// How much USD we can have unhedged or overhedged. That allows to avoid
 /// frequent order opening when channels balances changes by small amount.
-pub const ALLOWED_POSITION_GAP: i64 = 100;
+pub const ALLOWED_POSITION_GAP: i64 = 1;
 
 impl State {
     pub fn new() -> Self {
         State {
             last_changed: Utc::now().naive_utc(),
+            balance: None,
+            ticker: None,
             channels_hedge: HashMap::new(),
-            opened_orders: vec![],
+            opened_orders: None,
             opened_position: None,
+            scheduled_actions: vec![],
         }
     }
 
@@ -144,20 +156,65 @@ impl State {
         if let KolliderMsg::Tagged(tmsg) = msg {
             match tmsg {
                 KolliderTaggedMsg::OpenOrders { open_orders } => {
-                    self.opened_orders.clear();
                     if let Some(orders) = open_orders.get(HEDGING_SYMBOL) {
-                        orders
-                            .iter()
-                            .for_each(|o| self.opened_orders.push(o.clone().into()));
+                        let mut res = vec![];
+                        orders.iter().for_each(|o| res.push(o.clone().into()));
+
+                        self.opened_orders = Some(res);
                         return true;
+                    } else {
+                        self.opened_orders = Some(vec![]);
                     }
                 }
                 KolliderTaggedMsg::Positions { positions } => {
-                    self.opened_position = None;
                     if let Some(position) = positions.get(HEDGING_SYMBOL) {
                         self.opened_position = Some(position.clone().into());
                         return true;
+                    } else {
+                        self.opened_position = Some(KolliderPosition {
+                            liquidation_price: 0.0,
+                            leverage: 100,
+                            entry_value: 0,
+                            entry_price: 0,
+                            quantity: 0,
+                            rpnl: 0.0,
+                        });
+                        return true;
                     }
+                }
+                KolliderTaggedMsg::Open {
+                    symbol,
+                    order_id,
+                    leverage,
+                    price,
+                    quantity,
+                    side,
+                    ..
+                } if symbol == HEDGING_SYMBOL => {
+                    let order = KolliderOrder {
+                        id: order_id,
+                        leverage,
+                        price,
+                        quantity,
+                        side,
+                    };
+                    if let Some(orders) = &mut self.opened_orders {
+                        orders.push(order);
+                    } else {
+                        self.opened_orders = Some(vec![order]);
+                    }
+
+                    return true;
+                }
+                KolliderTaggedMsg::Balances { cash, .. } => {
+                    self.balance = Some(cash);
+                    return true;
+                }
+                KolliderTaggedMsg::IndexValues(IndexValue { symbol, value, .. })
+                    if symbol == INDEX_BTC_USD =>
+                {
+                    self.ticker = Some(value);
+                    return true;
                 }
                 _ => (),
             }
@@ -190,20 +247,42 @@ impl State {
     }
 
     /// Get total amount of sats that we request for short positions (buying stables)
-    pub fn short_orders(&self) -> u64 {
-        self.opened_orders
-            .iter()
-            .filter(|o| o.side == OrderSide::Ask)
-            .map(|o| o.required_margin())
-            .sum()
+    pub fn short_orders(&self) -> Option<u64> {
+        self.opened_orders.as_ref().map(|orders| {
+            orders
+                .iter()
+                .filter(|o| o.side == OrderSide::Ask)
+                .map(|o| o.required_margin())
+                .sum()
+        })
     }
 
     /// Get total amount of sats that we request for long positions (selling stables)
-    pub fn long_orders(&self) -> u64 {
-        self.opened_orders
+    pub fn long_orders(&self) -> Option<u64> {
+        self.opened_orders.as_ref().map(|orders| {
+            orders
+                .iter()
+                .filter(|o| o.side == OrderSide::Bid)
+                .map(|o| o.required_margin())
+                .sum()
+        })
+    }
+
+    /// Get total amount of sats we are going to place into short position (buying stable)
+    pub fn scheduled_shorts(&self) -> u64 {
+        self.scheduled_actions
             .iter()
-            .filter(|o| o.side == OrderSide::Bid)
-            .map(|o| o.required_margin())
+            .filter(|a| a.is_short_order())
+            .filter_map(|a| a.order_sats())
+            .sum()
+    }
+
+    /// Get total amount of sats we are going to place into long position (selling stables)
+    pub fn scheduled_longs(&self) -> u64 {
+        self.scheduled_actions
+            .iter()
+            .filter(|a| a.is_long_order())
+            .filter_map(|a| a.order_sats())
             .sum()
     }
 
@@ -215,48 +294,57 @@ impl State {
     /// Return actions that we need to execute based on current state of service
     ///
     /// TODO: React to situation when we have Bid and Ask orders that negate each other.
-    pub fn get_nex_action(&self) -> Result<Vec<StateAction>, NextActionError> {
-        let mut actions = vec![];
-
+    pub fn calculate_next_actions(&mut self) -> Result<(), NextActionError> {
         trace!("Calculation if we need to open new order");
-        let hcap = self.hedge_capacity() as i64;
-        let short_orders = self.short_orders() as i64;
-        let long_orders = self.long_orders() as i64;
-        let avg_price = self.hedge_avg_price()?;
-        let pos_volume: i64 = self.position_volume() as i64;
-        let pos_short = pos_volume + short_orders;
-        let pos_long = pos_volume - long_orders;
-        trace!("hcap {} > pos_short {} + gap {}", hcap, pos_short, ALLOWED_POSITION_GAP);
-        trace!("hcap {} < pos_long {} - gap {}", hcap, pos_long, ALLOWED_POSITION_GAP);
-        if hcap > pos_short + ALLOWED_POSITION_GAP {
-            assert!(
-                pos_short <= hcap,
-                "Sats overflow in order opening: {} <= {}",
-                pos_short,
-                hcap
-            );
-            let action = StateAction::OpenOrder {
-                sats: (hcap - pos_short) as u64,
-                price: avg_price,
-                side: OrderSide::Bid,
-            };
-            actions.push(action);
-        } else if hcap < pos_long - ALLOWED_POSITION_GAP {
-            assert!(
-                hcap <= pos_long,
-                "Sats overflow in order opening: {} <= {}",
-                hcap,
-                pos_long
-            );
-            let action = StateAction::OpenOrder {
-                sats: (pos_long - hcap) as u64,
-                price: avg_price,
-                side: OrderSide::Ask,
-            };
-            actions.push(action);
+        if let (Some(short_orders), Some(long_orders)) = (self.short_orders(), self.long_orders()) {
+            let hcap = self.hedge_capacity() as i64;
+            let scheduled_shorts = self.scheduled_shorts() as i64;
+            let scheduled_longs = self.scheduled_longs() as i64;
+            let avg_price = self.hedge_avg_price()?;
+            let pos_volume: i64 = self.position_volume() as i64;
+            let pos_short = pos_volume + short_orders as i64 + scheduled_shorts;
+            let pos_long = pos_volume - long_orders as i64 - scheduled_longs;
+            let gap = ALLOWED_POSITION_GAP * avg_price as i64;
+            trace!("hcap {} > pos_short {} + gap {}", hcap, pos_short, gap);
+            trace!("hcap {} < pos_long {} - gap {}", hcap, pos_long, gap);
+            if hcap > pos_short + gap {
+                debug!(
+                    "Decided to open short position as hcap {} > pos_short {} + gap {}",
+                    hcap, pos_short, gap
+                );
+                assert!(
+                    pos_short <= hcap,
+                    "Sats overflow in order opening: {} <= {}",
+                    pos_short,
+                    hcap
+                );
+                let action = StateAction::OpenOrder {
+                    sats: (hcap - pos_short) as u64,
+                    price: avg_price,
+                    side: OrderSide::Bid,
+                };
+                self.scheduled_actions.push(action);
+            } else if hcap < pos_long - gap {
+                debug!(
+                    "Decided to close position as hcap {} < pos_long {} - gap {}",
+                    hcap, pos_long, gap
+                );
+                assert!(
+                    hcap <= pos_long,
+                    "Sats overflow in order opening: {} <= {}",
+                    hcap,
+                    pos_long
+                );
+                let action = StateAction::OpenOrder {
+                    sats: (pos_long - hcap) as u64,
+                    price: avg_price,
+                    side: OrderSide::Ask,
+                };
+                self.scheduled_actions.push(action);
+            }
         }
 
-        Ok(actions)
+        Ok(())
     }
 }
 
@@ -266,7 +354,7 @@ impl Default for State {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, Schema, PartialEq, Clone)]
 pub enum StateAction {
     OpenOrder {
         sats: u64,
@@ -276,6 +364,32 @@ pub enum StateAction {
     },
     CloseOrder {
         order_id: u64,
+    },
+}
+
+impl StateAction {
+    /// Buying stable, selling sats
+    pub fn is_short_order(&self) -> bool {
+        match self {
+            StateAction::OpenOrder { side, .. } => *side == OrderSide::Bid,
+            _ => false,
+        }
+    }
+
+    /// Selling stable, buying sats
+    pub fn is_long_order(&self) -> bool {
+        match self {
+            StateAction::OpenOrder { side, .. } => *side == OrderSide::Ask,
+            _ => false,
+        }
+    }
+
+    /// Get amount of sats in opening order if the action is open order
+    pub fn order_sats(&self) -> Option<u64> {
+        match self {
+            StateAction::OpenOrder { sats, .. } => Some(*sats),
+            _ => None,
+        }
     }
 }
 
@@ -286,26 +400,32 @@ pub enum NextActionError {
 }
 
 /// Recalculate actions when state is changed
-pub async fn state_action_worker<F, Fut>(state_mx: Arc<Mutex<State>>, state_notify: Arc<Notify>, execute_action: F)
-where
+pub async fn state_action_worker<F, Fut>(
+    state_mx: Arc<Mutex<State>>,
+    state_notify: Arc<Notify>,
+    execute_action: F,
+) where
     F: Fn(StateAction) -> Fut,
     Fut: Future<Output = Result<(), Box<dyn Error>>>,
 {
     loop {
-        let mactions = {
-            let state = state_mx.lock().await;
-            state.get_nex_action()
-        };
-        match mactions {
-            Ok(actions) => {
-                for action in actions {
-                    let res = execute_action(action).await;
-                    if let Err(e) = res {
-                        log::error!("State action worker failed: {}", e);
+        {
+            let mut state = state_mx.lock().await;
+            let mactions = state
+                .calculate_next_actions();
+            debug!("Scheduled actions {:?}", state.scheduled_actions);
+            match mactions {
+                Ok(_) => {
+                    for action in state.scheduled_actions.iter() {
+                        let res = execute_action(action.clone()).await;
+                        if let Err(e) = res {
+                            log::error!("State action worker failed: {}", e);
+                        }
                     }
+                    state.scheduled_actions = vec![];
                 }
+                Err(e) => log::error!("Failed to calculate next state action: {}", e),
             }
-            Err(e) => log::error!("Failed to calculate next state action: {}", e),
         }
         state_notify.notified().await;
     }

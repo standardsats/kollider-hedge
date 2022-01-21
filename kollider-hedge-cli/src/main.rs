@@ -27,8 +27,22 @@ struct HtlcCmd {
     pub channel_id: String,
     /// Amount of satoshis, negative number represents withdraw
     pub sats: i64,
-    /// Current exchange rate of the HTLC sats/usd
-    pub rate: u64,
+    /// Current exchange rate of the HTLC sats/USD, cannot be specified alongside with price option.
+    #[clap(long)]
+    pub rate: Option<u64>,
+    /// Current exchange rate of the HTLC USD/BTC, cannot be specified alongside with rate option.
+    #[clap(long)]
+    pub price: Option<f64>,
+}
+
+impl HtlcCmd {
+    fn rate(&self) -> u64 {
+        match (self.rate, self.price) {
+            (Some(r), None) => r,
+            (None, Some(p)) => (100_000_000. / (p as f64)).round() as u64,
+            _ => panic!("Specify only rate or only price parameter!"),
+        }
+    }
 }
 
 #[tokio::main]
@@ -44,15 +58,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let pretty = serde_json::to_string_pretty(&state)?;
             println!("{}", pretty);
         }
-        SubCommand::Htlc(HtlcCmd {
-            channel_id,
-            sats,
-            rate,
-        }) => {
+        SubCommand::Htlc(cmd) => {
+            let rate = cmd.rate();
             client
                 .hedge_htlc(HtlcInfo {
-                    channel_id,
-                    sats,
+                    channel_id: cmd.channel_id,
+                    sats: cmd.sats,
                     rate,
                 })
                 .await?;

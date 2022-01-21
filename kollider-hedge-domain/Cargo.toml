@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 chrono = { version = "0.4.19", features = [ "serde" ] }
 futures = "0.3.19"
-kollider-client = { git = "https://github.com/standardsats/kollider-client", rev = "8d73db9a1185cce291316b2a0915d3dbdbb4ec37", features = [ "ws", "openapi" ] }
+kollider-client = { git = "https://github.com/standardsats/kollider-client", rev = "cfabcd9ec38e2c61d7de278ebc4efa6a73b985a1", features = [ "ws", "openapi" ] }
 log = "0.4.14"
 reqwest = { version = "0.11", features = [ "json" ] }
 rweb = { version = "0.15.0", features = ["openapi", "chrono"] }
