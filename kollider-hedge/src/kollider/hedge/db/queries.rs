@@ -73,9 +73,9 @@ pub async fn insert_update(pool: &Pool, update: UpdateBody) -> Result<()> {
 }
 
 /// Reconstruct state from chain of updates and snapshots in the database
-pub async fn query_state(pool: &Pool) -> Result<State> {
+pub async fn query_state(pool: &Pool, config: HedgeConfig) -> Result<State> {
     let updates = query_updates(pool).await?;
-    Ok(State::collect(updates.into_iter().rev())?)
+    Ok(State::collect(config, updates.into_iter().rev())?)
 }
 
 #[cfg(test)]
@@ -224,11 +224,12 @@ mod tests {
         insert_update(&pool, UpdateBody::Htlc(htlc_update2.clone()))
             .await
             .unwrap();
-        let state = query_state(&pool).await.unwrap();
+        let state = query_state(&pool, HedgeConfig::default()).await.unwrap();
         assert_eq!(
             state,
             State {
                 last_changed: state.last_changed,
+                config: HedgeConfig::default(),
                 balance: None,
                 ticker: None,
                 channels_hedge: hashmap! {
@@ -239,6 +240,7 @@ mod tests {
                 },
                 opened_orders: vec![],
                 opened_position: None,
+                opening_orders: vec![],
                 scheduled_actions: vec![],
             }
         );

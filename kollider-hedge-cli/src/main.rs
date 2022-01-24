@@ -26,6 +26,7 @@ struct HtlcCmd {
     /// ID of channel
     pub channel_id: String,
     /// Amount of satoshis, negative number represents withdraw
+    #[clap(long)]
     pub sats: i64,
     /// Current exchange rate of the HTLC sats/USD, cannot be specified alongside with price option.
     #[clap(long)]

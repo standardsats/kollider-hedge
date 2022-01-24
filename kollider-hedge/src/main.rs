@@ -4,19 +4,18 @@ mod kollider;
 #[macro_use]
 extern crate maplit;
 
-use kollider_api::kollider::{KolliderMsg, KolliderTaggedMsg};
 use crate::kollider::hedge::api::{hedge_api_specs, serve_api};
 use crate::kollider::hedge::db::{create_db_pool, queries::query_state};
 use clap::Parser;
 use futures::StreamExt;
-use kollider_api::kollider::{websocket::*, ChannelName, MarginType, OrderType, SettlementType};
-use kollider_hedge_domain::state::{State, StateAction, state_action_worker, HEDGING_SYMBOL};
+use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use kollider_api::kollider::{websocket::*, ChannelName};
+use kollider_api::kollider::{KolliderMsg, KolliderTaggedMsg};
+use kollider_hedge_domain::state::{state_action_worker, HedgeConfig, State};
 use log::*;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
-use futures_channel::mpsc::{UnboundedSender, UnboundedReceiver};
-use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 #[clap(about, version, author)]
@@ -54,6 +53,9 @@ enum SubCommand {
         /// Port to bind the service to
         #[clap(long, short, default_value = "8081", env = "KOLLIDER_HEDGE_PORT")]
         port: u16,
+        /// That percent is added and subtructed from current price to ensure that order is executed
+        #[clap(long, default_value = "0.1", env = "KOLLIDER_HEDGE_SPREAD")]
+        spread_percent: f64,
     },
     /// Output swagger spec
     Swagger,
@@ -65,10 +67,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
 
     match args.subcmd {
-        SubCommand::Serve { host, port } => {
+        SubCommand::Serve {
+            host,
+            port,
+            spread_percent,
+        } => {
             let pool = create_db_pool(&args.dbconnect).await?;
+            let config = HedgeConfig { spread_percent };
 
-            let state = query_state(&pool).await?;
+            let state = query_state(&pool, config).await?;
             let state_mx = Arc::new(Mutex::new(state));
             let state_notify = Arc::new(Notify::new());
             let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
@@ -84,59 +91,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         api_key: &args.api_key,
                         password: &args.password,
                     };
-                    if let Err(e) =
-                        listen_websocket(stdin_tx, stdin_rx, state, state_notify, auth_notify, ws_auth)
-                            .await
+                    if let Err(e) = listen_websocket(
+                        stdin_tx,
+                        stdin_rx,
+                        state,
+                        state_notify,
+                        auth_notify,
+                        ws_auth,
+                    )
+                    .await
                     {
                         error!("Websocket thread error: {}", e);
                     }
                 }
             });
             tokio::spawn({
-                let state = state_mx.clone();
+                let state_mx = state_mx.clone();
                 let state_notify = state_notify.clone();
                 let stdin_tx = stdin_tx.clone();
                 let auth_notify = auth_notify.clone();
                 async move {
                     auth_notify.notified().await;
-                    state_action_worker(state, state_notify, |action| {
+                    state_action_worker(state_mx, state_notify, |action| {
                         let stdin_tx = stdin_tx.clone();
                         async move {
                             log::info!("Executing action: {:?}", action);
-                            match action {
-                                StateAction::OpenOrder { sats, price, side } => {
-                                    let usd_price = 10 * 100_000_000 / price;
-                                    let quantity = (sats as f64 / price as f64).ceil() as u64;
-                                    log::info!("Price {} 10*USD/BTC", usd_price);
-                                    log::info!("Quantity {}", quantity);
-                                    stdin_tx.unbounded_send(KolliderMsg::Order {
-                                        _type: OrderTag::Tag,
-                                        price: usd_price,
-                                        quantity,
-                                        symbol: HEDGING_SYMBOL.to_owned(),
-                                        leverage: 100,
-                                        side: side.inverse(),
-                                        margin_type: MarginType::Isolated,
-                                        order_type: OrderType::Limit,
-                                        settlement_type: SettlementType::Delayed,
-                                        ext_order_id: Uuid::new_v4()
-                                            .to_hyphenated()
-                                            .encode_lower(&mut Uuid::encode_buffer())
-                                            .to_owned(),
-                                    })?
-                                },
-                                StateAction::CloseOrder { order_id } => {
-                                    stdin_tx.unbounded_send(KolliderMsg::CancelOrder {
-                                        _type: CancelOrderTag::Tag,
-                                        order_id,
-                                        symbol: HEDGING_SYMBOL.to_owned(),
-                                        settlement_type: SettlementType::Delayed,
-                                    })?
-                                }
+                            for msg in action.to_kollider_messages() {
+                                stdin_tx.unbounded_send(msg)?;
                             }
                             Ok(())
                         }
-                    }).await;
+                    })
+                    .await;
                 }
             });
 
@@ -205,7 +191,7 @@ async fn listen_websocket(
                     state_notify.notify_one();
                 }
 
-                if let KolliderMsg::Tagged(KolliderTaggedMsg::Authenticate{..}) = message {
+                if let KolliderMsg::Tagged(KolliderTaggedMsg::Authenticate { .. }) = message {
                     auth_notify.notify_one();
                 }
             }
