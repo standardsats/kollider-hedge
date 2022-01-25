@@ -18,3 +18,32 @@ impl HtlcInfo {
         }
     }
 }
+
+#[derive(Serialize, Deserialize, Schema)]
+pub struct Stats {
+    pub channels_sats: u64,
+    pub channels_usd: f64,
+
+    pub position_sats: u64,
+    pub position_usd: u64,
+
+    pub account_balance: f64,
+}
+
+impl Stats {
+    pub fn new() -> Stats {
+        Stats {
+            channels_sats: 0,
+            channels_usd: 0.0,
+            position_sats: 0,
+            position_usd: 0,
+            account_balance: 0.,
+        }
+    }
+}
+
+impl Default for Stats {
+    fn default() -> Stats {
+        Stats::new()
+    }
+}

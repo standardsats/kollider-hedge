@@ -369,6 +369,11 @@ impl State {
         self.opened_position.as_ref().map_or(0, |p| p.entry_value)
     }
 
+    /// Get amount of usd locked in the position
+    pub fn position_quantity(&self) -> u64 {
+        self.opened_position.as_ref().map_or(0, |p| p.quantity)
+    }
+
     /// Remember that the order is now opening
     pub fn add_opening_order(&mut self, order: OpeningOrder) {
         self.opening_orders.insert(order.ext_id.clone(), order);

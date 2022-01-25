@@ -31,7 +31,12 @@ impl HedgeClient {
         let path = "/hedge/htlc";
         let endpoint = format!("{}{}", self.server, path);
         let request = self.client.post(endpoint).json(&info).build()?;
-        self.client.execute(request).await?.text().await?;
+        self.client
+            .execute(request)
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
         Ok(())
     }
 
@@ -39,7 +44,28 @@ impl HedgeClient {
         let path = "/state";
         let endpoint = format!("{}{}", self.server, path);
         let request = self.client.get(endpoint).build()?;
-        let response = self.client.execute(request).await?.text().await?;
+        let response = self
+            .client
+            .execute(request)
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        debug!("Response: {}", response);
+        Ok(serde_json::from_str(&response)?)
+    }
+
+    pub async fn query_stats(&self) -> Result<Stats> {
+        let path = "/stats";
+        let endpoint = format!("{}{}", self.server, path);
+        let request = self.client.get(endpoint).build()?;
+        let response = self
+            .client
+            .execute(request)
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
         debug!("Response: {}", response);
         Ok(serde_json::from_str(&response)?)
     }

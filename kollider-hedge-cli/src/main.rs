@@ -19,6 +19,8 @@ enum SubCommand {
     State,
     /// Add or remove sats from hedge position
     Htlc(HtlcCmd),
+    /// Get summary from plugin about current metrics
+    Stats,
 }
 
 #[derive(Parser, Debug)]
@@ -69,6 +71,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 })
                 .await?;
             println!("Done");
+        }
+        SubCommand::Stats => {
+            let stats = client.query_stats().await?;
+            let pretty = serde_json::to_string_pretty(&stats)?;
+            println!("{}", pretty);
         }
     }
     Ok(())
