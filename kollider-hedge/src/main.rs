@@ -56,6 +56,9 @@ enum SubCommand {
         /// That percent is added and subtructed from current price to ensure that order is executed
         #[clap(long, default_value = "0.1", env = "KOLLIDER_HEDGE_SPREAD")]
         spread_percent: f64,
+        /// leverage * 100, 100 means 1x, 200 means 2x. Defines the leverage of opened positions. If you hedge at 2x, you need 1/2 of sats to hedge all fixed USD value, but you will loose you money at 50% dropdowns.
+        #[clap(long, default_value = "100", env = "KOLLIDER_HEDGE_LEVERAGE")]
+        leverage: u64,
     },
     /// Output swagger spec
     Swagger,
@@ -71,9 +74,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             host,
             port,
             spread_percent,
+            leverage,
         } => {
             let pool = create_db_pool(&args.dbconnect).await?;
-            let config = HedgeConfig { spread_percent };
+            let config = HedgeConfig { spread_percent, hedge_leverage: leverage };
 
             let state = query_state(&pool, config).await?;
             let state_mx = Arc::new(Mutex::new(state));

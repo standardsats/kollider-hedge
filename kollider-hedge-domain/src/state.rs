@@ -17,12 +17,16 @@ use uuid::Uuid;
 pub struct HedgeConfig {
     /// That percent is added and subtructed from current price to ensure that order is executed
     pub spread_percent: f64,
+    /// Leverage * 100 defines multiplyier of losses and profit. If you hedge with 2x, you need 1/2 of
+    /// sats to hedge all sats in the channels.
+    pub hedge_leverage: u64,
 }
 
 impl Default for HedgeConfig {
     fn default() -> HedgeConfig {
         HedgeConfig {
             spread_percent: 0.1,
+            hedge_leverage: 100,
         }
     }
 }
@@ -429,6 +433,7 @@ impl State {
                     sats: (hcap - pos_short) as u64,
                     price,
                     side: OrderSide::Bid,
+                    leverage: self.config.hedge_leverage,
                 });
                 self.scheduled_actions.push(action);
             } else if hcap < pos_long - gap {
@@ -449,6 +454,7 @@ impl State {
                     sats: (pos_long - hcap) as u64,
                     price,
                     side: OrderSide::Ask,
+                    leverage: self.config.hedge_leverage,
                 });
                 self.scheduled_actions.push(action);
             }
@@ -486,6 +492,7 @@ pub struct OpeningOrder {
     pub price: u64,
     /// Bid for selling sats, Ask for buying sats back
     pub side: OrderSide,
+    pub leverage: u64,
 }
 
 impl StateAction {
@@ -521,6 +528,7 @@ impl StateAction {
                 sats,
                 price,
                 side,
+                leverage,
             }) => {
                 let usd_price = 10 * 100_000_000 / price;
                 let quantity = (*sats as f64 / *price as f64).ceil() as u64;
@@ -531,7 +539,7 @@ impl StateAction {
                     price: usd_price,
                     quantity,
                     symbol: HEDGING_SYMBOL.to_owned(),
-                    leverage: 100,
+                    leverage: *leverage,
                     side: side.inverse(),
                     margin_type: MarginType::Isolated,
                     order_type: OrderType::Limit,
