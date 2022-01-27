@@ -76,14 +76,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
             spread_percent,
             leverage,
         } => {
+            info!("Connecting to database");
             let pool = create_db_pool(&args.dbconnect).await?;
+            info!("Connected");
             let config = HedgeConfig { spread_percent, hedge_leverage: leverage };
 
+            info!("Reconstructing state from database");
             let state = query_state(&pool, config).await?;
             let state_mx = Arc::new(Mutex::new(state));
             let state_notify = Arc::new(Notify::new());
             let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
             let auth_notify = Arc::new(Notify::new());
+            info!("Spawning websocket control thread");
             tokio::spawn({
                 let state = state_mx.clone();
                 let state_notify = state_notify.clone();
@@ -109,6 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             });
+            info!("Spawning action executor thread");
             tokio::spawn({
                 let state_mx = state_mx.clone();
                 let state_notify = state_notify.clone();
@@ -129,7 +134,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .await;
                 }
             });
-
+            info!("Serving API");
             serve_api(&host, port, pool, state_mx, state_notify).await?;
         }
         SubCommand::Swagger => {

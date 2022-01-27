@@ -11,6 +11,8 @@ in stdenv.mkDerivation rec {
     llvmPackages.libclang
     openssl
     cacert
+    #podman-compose
+    docker-compose
   ];
   shellHook = ''
   export LIBCLANG_PATH="${llvmPackages.libclang}/lib"

@@ -19,7 +19,7 @@ let
 in
 naersk.buildPackage {
   name = "kollider-hedge";
-  root = pkgs.lib.sourceFilesBySuffices ./. [".rs" ".toml" ".lock" ".html" ".css" ".png"];
+  root = pkgs.lib.sourceFilesBySuffices ./. [".rs" ".toml" ".lock" ".html" ".css" ".png" ".sh" ".sql"];
   buildInputs = with pkgs; [ openssl pkgconfig clang llvm llvmPackages.libclang zlib cacert curl postgresql ];
   LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
   OPENSSL_DIR = "${merged-openssl}";
@@ -30,7 +30,8 @@ naersk.buildPackage {
     pg_ctl start -D./pgsql-data -l psqlog
     psql --host=$PWD -d postgres -c "create role \"kollider_hedge\" with login password 'kollider_hedge';"
     psql --host=$PWD -d postgres -c "create database \"kollider_hedge\" owner \"kollider_hedge\";"
-    for f in ${./kollider-hedge/migrations}/*.sql
+    cp -r ${./kollider-hedge/migrations} ./kollider-hedge/migrations
+    for f in ./kollider-hedge/migrations/*.sql
     do
       echo "Applying $f"
       psql --host=$PWD -U kollider_hedge -d kollider_hedge -f $f

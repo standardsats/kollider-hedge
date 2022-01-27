@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_PASSWORD=kollider_hedge
+      - POSTGRES_USER=kollider_hedge
+      - POSTGRES_DB=kollider_hedge
+
+  service:
+    image: kollider-hedge:latest
+    ports:
+      - "8081:8081"
+    hostname: kolliderhedge
+    environment:
+      - KOLLIDER_HEDGE_POSTGRES=postgres://kollider_hedge:kollider_hedge@postgres:5432/kollider_hedge
+      - KOLLIDER_HEDGE_PORT=8081
+      - LEVERAGE=100
+      - SPREAD_PERCENT=0.1
+      - RUST_LOG=kollider_hedge::api,kollider_hedge=debug,kollider_hedge_domain=debug
+      # Set it via .env file
+      - KOLLIDER_API_KEY=$KOLLIDER_API_KEY
+      - KOLLIDER_API_SECRET=$KOLLIDER_API_SECRET
+      - KOLLIDER_API_PASSWORD=$KOLLIDER_API_PASSWORD
+    command: /wait-for-it.sh postgres:5432 -- /kollider-hedge serve
+    links:
+      - postgres

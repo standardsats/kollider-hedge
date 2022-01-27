@@ -1,8 +1,11 @@
-FROM rust:1.58
-
+FROM rust:1 as builder
+RUN apt-get update && apt-get install -y clang postgresql sudo
 COPY . .
-WORKDIR ./kollider-hedge
+RUN ./setup-build-postgresql.sh
 
-RUN cargo install --path .
-
-CMD ["kollider-hedge"]
+FROM debian:bullseye-slim
+COPY --from=builder target/release/kollider-hedge /kollider-hedge
+VOLUME /data
+WORKDIR /data
+RUN apt update && apt install -y libssl1.1 ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY ./wait-for-it.sh /wait-for-it.sh
