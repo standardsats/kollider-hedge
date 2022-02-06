@@ -1,4 +1,5 @@
 target/
 docker-image-kollider-hedge.tar.gz
 result/
+result
 .env

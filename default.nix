@@ -30,8 +30,8 @@ naersk.buildPackage {
     pg_ctl start -D./pgsql-data -l psqlog
     psql --host=$PWD -d postgres -c "create role \"kollider_hedge\" with login password 'kollider_hedge';"
     psql --host=$PWD -d postgres -c "create database \"kollider_hedge\" owner \"kollider_hedge\";"
-    cp -r ${./kollider-hedge/migrations} ./kollider-hedge/migrations
-    for f in ./kollider-hedge/migrations/*.sql
+    cp -r ${./kollider-hedge-db/migrations} ./kollider-hedge-db/migrations
+    for f in ./kollider-hedge-db/migrations/*.sql
     do
       echo "Applying $f"
       psql --host=$PWD -U kollider_hedge -d kollider_hedge -f $f

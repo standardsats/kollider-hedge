@@ -3,7 +3,7 @@ echo "Deploying local PostgreSQL"
 pg_ctlcluster 13 main start
 sudo -u postgres psql -d postgres -c "create role \"kollider\" with login password 'kollider';"
 sudo -u postgres psql -d postgres -c "create database \"kollider_hedge\" owner \"kollider\";"
-for f in ./kollider-hedge/migrations/*.sql
+for f in ./kollider-hedge-db/migrations/*.sql
 do
     echo "Applying $f"
     sudo -u postgres psql -d kollider_hedge -f $f
