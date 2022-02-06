@@ -29,6 +29,13 @@ Alsow you can run CLI to access API of the plugin from the terminal:
 kollider-hedge-cli --help
 ```
 
+## Logging
+
+The environment variable `RUST_LOG` manages output levels. Please refer to [Documentation](https://rust-lang-nursery.github.io/rust-cookbook/development_tools/debugging/config_log.html) for full information.
+
+The most verbosive option is `RUST_LOG=trace`. We recommended to set up `RUST_LOG=debug` for full debugging and `RUST_LOG=kollider_hedge::api,kollider_hedge=debug,kollider_hedge_domain=debug` for setting up fine grained output per module level.
+
+
 # Docker
 
 You can build the Docker images either by Nix or Docker:
