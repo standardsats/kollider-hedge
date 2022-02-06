@@ -4,15 +4,18 @@ You need to run local PostgreSQL instance to allow compiler to check SQL quierie
 1. Create `kollider` user with `kollider` password.
 2. Allow database creation for the user. That is required for temporary databases for tests.
 3. Create `kollider_hedge` database and add `kollider` as owner.
-
-Run build:
+4. Set env variable with connection string `DATABASE_URL=postgresql://kollider:kollider@localhost:5432/kollider_hedge`
+5. Run initial migrations with the following command:
 ```
-DATABASE_URL=postgresql://kollider:kollider@localhost:5432/kollider_hedge cargo build
+cargo run --bin kollider-hedge-db migrate
 ```
-
-Run tests:
+6. Run build (don't forget to set `DATABASE_URL` at the step 3):
 ```
-DATABASE_URL=postgresql://kollider:kollider@localhost:5432/kollider_hedge cargo test
+cargo build
+```
+7. Run tests:
+```
+cargo test
 ```
 
 # How to run

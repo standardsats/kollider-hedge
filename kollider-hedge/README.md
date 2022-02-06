@@ -1,7 +1,7 @@
 # How to build
 You need to run local PostgreSQL instance to allow compiler to check SQL quieries in advance:
 1. Create `kollider` user with `kollider` password.
-2. Allow database creation for the user. That is required for temporary databases for tests.
+2. Allow database creation for the user. That is required for temporary databases for tests. `ALTER USER kollider CREATEDB;`
 3. Create `kollider_hedge` database and add `kollider` as owner.
 
 Run build:

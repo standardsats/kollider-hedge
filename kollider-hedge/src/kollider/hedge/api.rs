@@ -7,14 +7,14 @@ use kollider_hedge_domain::state::*;
 use kollider_hedge_domain::update::*;
 use rweb::openapi::Spec;
 use rweb::*;
+use serde::Serialize;
 use std::convert::From;
+use std::convert::Infallible;
 use std::error::Error;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
-use serde::Serialize;
-use std::convert::Infallible;
 
 use warp::http::StatusCode;
 use warp::{Filter, Rejection, Reply};
@@ -189,7 +189,13 @@ mod tests {
         Fut: Future<Output = ()>,
     {
         let _ = env_logger::builder().is_test(true).try_init();
-        let state_mx = Arc::new(Mutex::new(State::default()));
+        let init_state = State {
+            opened_orders: Some(vec![]),
+            ticker: Some(35000.),
+            ..State::default()
+        };
+
+        let state_mx = Arc::new(Mutex::new(init_state));
         let state_notify = Arc::new(Notify::new());
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -228,7 +234,10 @@ mod tests {
         assert!(res.is_ok());
     }
 
-    #[sqlx_database_tester::test(pool(variable = "pool"))]
+    #[sqlx_database_tester::test(pool(
+        variable = "pool",
+        migrations = "../kollider-hedge-db/migrations"
+    ))]
     async fn test_api_hedge() {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 
@@ -253,7 +262,7 @@ mod tests {
                 client
                     .hedge_htlc(HtlcInfo {
                         channel_id: "aboba".to_owned(),
-                        sats: 200,
+                        sats: 20000,
                         rate: 2500,
                     })
                     .await
@@ -264,7 +273,7 @@ mod tests {
                     state.channels_hedge,
                     hashmap! {
                         "aboba".to_owned() => ChannelHedge {
-                            sats: 200,
+                            sats: 20000,
                             rate: 2500,
                         }
                     }
@@ -275,8 +284,8 @@ mod tests {
                     res = receiver.recv().fuse() => res.unwrap(),
                     _ = timeout.fuse() => panic!("Server reaction timeout"),
                 };
-                assert_eq!(sats, 200);
-                assert_eq!(price, 2500);
+                assert_eq!(sats, 20000);
+                assert_eq!(price, 2860); // Defined by current ticker
                 assert_eq!(side, OrderSide::Bid);
             },
         )

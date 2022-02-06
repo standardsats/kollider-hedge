@@ -81,9 +81,13 @@ pub async fn query_state(pool: &Pool, config: HedgeConfig) -> Result<State> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[sqlx_database_tester::test(
-        pool(variable = "migrated_pool", migrations = "./migrations"),
+        pool(
+            variable = "migrated_pool",
+            migrations = "../kollider-hedge-db/migrations"
+        ),
         pool(
             variable = "empty_db_pool",
             transaction_variable = "empty_db_transaction",
@@ -103,7 +107,10 @@ mod tests {
         println!("Empty pool tables: \n {:#?}", empty_pool_tables);
     }
 
-    #[sqlx_database_tester::test(pool(variable = "pool"))]
+    #[sqlx_database_tester::test(pool(
+        variable = "pool",
+        migrations = "../kollider-hedge-db/migrations"
+    ))]
     async fn test_query_updates() {
         // First check that empty db operates well
         let updates = query_updates(&pool).await.unwrap();
@@ -193,7 +200,10 @@ mod tests {
         );
     }
 
-    #[sqlx_database_tester::test(pool(variable = "pool"))]
+    #[sqlx_database_tester::test(pool(
+        variable = "pool",
+        migrations = "../kollider-hedge-db/migrations"
+    ))]
     async fn test_state_fold() {
         let snapshot_update = StateSnapshot {
             channels_hedge: hashmap! {
@@ -238,9 +248,9 @@ mod tests {
                         rate: 2500,
                     }
                 },
-                opened_orders: vec![],
+                opened_orders: None,
                 opened_position: None,
-                opening_orders: vec![],
+                opening_orders: HashMap::new(),
                 scheduled_actions: vec![],
             }
         );
