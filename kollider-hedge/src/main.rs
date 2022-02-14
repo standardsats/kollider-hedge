@@ -79,7 +79,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             info!("Connecting to database");
             let pool = create_db_pool(&args.dbconnect).await?;
             info!("Connected");
-            let config = HedgeConfig { spread_percent, hedge_leverage: leverage };
+            let config = HedgeConfig {
+                spread_percent,
+                hedge_leverage: leverage,
+            };
 
             info!("Reconstructing state from database");
             let state = query_state(&pool, config).await?;
@@ -163,20 +166,8 @@ async fn listen_websocket(
 ) -> Result<(), Box<dyn Error>> {
     let (msg_sender, msg_receiver) = futures_channel::mpsc::unbounded();
     let auth_msg = make_user_auth(ws_auth.api_secret, ws_auth.api_key, ws_auth.password)?;
-    let channels = vec![ChannelName::IndexValues];
-    let symbols = vec![".BTCUSD".to_owned()];
     stdin_tx.unbounded_send(auth_msg)?;
-    stdin_tx.unbounded_send(KolliderMsg::Subscribe {
-        _type: SubscribeTag::Tag,
-        channels,
-        symbols,
-    })?;
-    stdin_tx.unbounded_send(KolliderMsg::FetchOpenOrders {
-        _type: FetchOpenOrdersTag::Tag,
-    })?;
-    stdin_tx.unbounded_send(KolliderMsg::FetchPositions {
-        _type: FetchPositionsTag::Tag,
-    })?;
+
     tokio::spawn(kollider_websocket(stdin_rx, msg_sender));
 
     let mut counter = 0;
@@ -185,6 +176,7 @@ async fn listen_websocket(
             let state_mx = state_mx.clone();
             let state_notify = state_notify.clone();
             let auth_notify = auth_notify.clone();
+            let stdin_tx = stdin_tx.clone();
             async move {
                 if let KolliderMsg::Tagged(KolliderTaggedMsg::IndexValues(v)) = &message {
                     counter += 1;
@@ -201,7 +193,38 @@ async fn listen_websocket(
                 }
 
                 if let KolliderMsg::Tagged(KolliderTaggedMsg::Authenticate { .. }) = message {
+                    info!("We passed authentification on Kollider, subscibing and getting current state");
                     auth_notify.notify_one();
+                    debug!("Notified state that auth is passed");
+
+                    let channels = vec![ChannelName::IndexValues];
+                    let symbols = vec![".BTCUSD".to_owned()];
+                    stdin_tx
+                        .unbounded_send(KolliderMsg::Subscribe {
+                            _type: SubscribeTag::Tag,
+                            channels,
+                            symbols,
+                        })
+                        .map_err(|e| {
+                            error!("Failed to send subscribe message: {}", e);
+                        })
+                        .ok();
+                    stdin_tx
+                        .unbounded_send(KolliderMsg::FetchOpenOrders {
+                            _type: FetchOpenOrdersTag::Tag,
+                        })
+                        .map_err(|e| {
+                            error!("Failed to send fetch orders message: {}", e);
+                        })
+                        .ok();
+                    stdin_tx
+                        .unbounded_send(KolliderMsg::FetchPositions {
+                            _type: FetchPositionsTag::Tag,
+                        })
+                        .map_err(|e| {
+                            error!("Failed to send fetch positions message: {}", e);
+                        })
+                        .ok();
                 }
             }
         })
