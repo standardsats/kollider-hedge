@@ -1,0 +1,16 @@
+[Unit]
+Description=Kollider Hedge Service
+Wants=network.target
+After=network.target
+
+[Service]
+User=kollider
+Group=kollider
+EnvironmentFile=/home/kollider/kollider-hedge/.env
+WorkingDirectory=/home/kollider/kollider-hedge
+ExecStart=/home/kollider/kollider-hedge/target/debug/kollider-hedge --api-key $KOLLIDER_API_KEY --api-secret $KOLLIDER_API_SECRET --password $KOLLIDER_API_PASSWORD --dbconnect $DATABASE_URL serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
