@@ -193,7 +193,9 @@ async fn listen_websocket(
                 }
 
                 if let KolliderMsg::Tagged(KolliderTaggedMsg::Authenticate { .. }) = message {
+                    info!("We passed authentification on Kollider, subscibing and getting current state");
                     auth_notify.notify_one();
+                    debug!("Notified state that auth is passed");
 
                     let channels = vec![ChannelName::IndexValues];
                     let symbols = vec![".BTCUSD".to_owned()];
