@@ -591,7 +591,8 @@ pub async fn state_action_worker<F, Fut>(
     state_mx: Arc<Mutex<State>>,
     state_notify: Arc<Notify>,
     execute_action: F,
-) where
+) -> Result<(), Box<dyn Error>>
+where
     F: Fn(StateAction) -> Fut,
     Fut: Future<Output = Result<(), Box<dyn Error>>>,
 {
@@ -607,12 +608,18 @@ pub async fn state_action_worker<F, Fut>(
                         let res = execute_action(action.clone()).await;
                         if let Err(e) = res {
                             log::error!("State action worker failed: {}", e);
+                            state.finalize_action(action);
+                            return Err(e);
+                        } else {
+                            state.finalize_action(action);
                         }
-                        state.finalize_action(action);
                     }
                     state.scheduled_actions = vec![];
                 }
-                Err(e) => log::error!("Failed to calculate next state action: {}", e),
+                Err(e) => {
+                    log::error!("Failed to calculate next state action: {}", e);
+                    return Err(Box::new(e));
+                }
             }
         }
         state_notify.notified().await;
