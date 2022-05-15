@@ -54,3 +54,17 @@ KOLLIDER_API_SECRET="*******"
 KOLLIDER_API_PASSWORD="*********"
 ```
 Run: `docker-compose up`
+
+# Troubleshooting and Debug
+
+Best configuration to track API access errors:
+
+```
+RUST_LOG=kollider_hedge::api,kollider_hedge=trace,kollider_hedge_domain=debug
+```
+
+Full tracing (not recommended for most situations):
+
+```
+RUST_LOG=trace
+```
