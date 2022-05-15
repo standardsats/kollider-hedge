@@ -214,18 +214,18 @@ mod tests {
                 futures::future::select(serve_task, receiver.map_err(drop)).await;
             }
         });
-        tokio::spawn(state_action_worker(
-            state_mx.clone(),
-            state_notify.clone(),
-            move |action| {
+        tokio::spawn(async move {
+            state_action_worker(state_mx.clone(), state_notify.clone(), move |action| {
                 let action_executor = action_executor.clone();
                 async move {
                     info!("Executing action: {:?}", action);
                     action_executor(action).await;
                     Ok(())
                 }
-            },
-        ));
+            })
+            .await
+            .ok();
+        });
 
         let res = AssertUnwindSafe(test_body()).catch_unwind().await;
 
