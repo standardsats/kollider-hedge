@@ -15,6 +15,10 @@ use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Schema, Clone)]
 pub struct HedgeConfig {
+    /// Pair for which service is configured
+    pub hedge_pair: String,
+    /// Hedge symbol
+    pub hedge_sym: String,
     /// That percent is added and subtructed from current price to ensure that order is executed
     pub spread_percent: f64,
     /// Leverage * 100 defines multiplyier of losses and profit. If you hedge with 2x, you need 1/2 of
@@ -25,6 +29,8 @@ pub struct HedgeConfig {
 impl Default for HedgeConfig {
     fn default() -> HedgeConfig {
         HedgeConfig {
+            hedge_pair: ".BTCUSD".to_string(),
+            hedge_sym: "BTCUSD.PERP".to_string(),
             spread_percent: 0.1,
             hedge_leverage: 100,
         }
@@ -112,9 +118,6 @@ pub enum StateUpdateErr {
 
 impl rweb::reject::Reject for StateUpdateErr {}
 
-pub const HEDGING_SYMBOL: &str = "BTCUSD.PERP";
-pub const INDEX_BTC_USD: &str = ".BTCUSD";
-
 /// How much USD we can have unhedged or overhedged. That allows to avoid
 /// frequent order opening when channels balances changes by small amount.
 pub const ALLOWED_POSITION_GAP: i64 = 1;
@@ -182,7 +185,7 @@ impl State {
         if let KolliderMsg::Tagged(tmsg) = msg {
             match tmsg {
                 KolliderTaggedMsg::OpenOrders { open_orders } => {
-                    if let Some(orders) = open_orders.get(HEDGING_SYMBOL) {
+                    if let Some(orders) = open_orders.get(self.config.hedge_sym.as_str()) {
                         let mut res = vec![];
                         orders.iter().for_each(|o| res.push(o.clone().into()));
 
@@ -193,7 +196,7 @@ impl State {
                     }
                 }
                 KolliderTaggedMsg::Positions { positions } => {
-                    if let Some(position) = positions.get(HEDGING_SYMBOL) {
+                    if let Some(position) = positions.get(self.config.hedge_sym.as_str()) {
                         self.opened_position = Some(position.clone().into());
                         return true;
                     } else {
@@ -217,7 +220,7 @@ impl State {
                     quantity,
                     side,
                     ..
-                } if symbol == HEDGING_SYMBOL => {
+                } if symbol == self.config.hedge_sym => {
                     let order = KolliderOrder {
                         id: order_id,
                         ext_id: ext_order_id,
@@ -239,7 +242,7 @@ impl State {
                     return true;
                 }
                 KolliderTaggedMsg::IndexValues(IndexValue { symbol, value, .. })
-                    if symbol == INDEX_BTC_USD =>
+                    if symbol == self.config.hedge_pair =>
                 {
                     self.ticker = Some(value);
                     return true;
@@ -430,6 +433,7 @@ impl State {
                 );
                 let action = StateAction::OpenOrder(OpeningOrder {
                     ext_id: OpeningOrder::new_id(),
+                    symbol: self.config.hedge_sym.clone(),
                     sats: (hcap - pos_short) as u64,
                     price,
                     side: OrderSide::Bid,
@@ -451,6 +455,7 @@ impl State {
                 );
                 let action = StateAction::OpenOrder(OpeningOrder {
                     ext_id: OpeningOrder::new_id(),
+                    symbol: self.config.hedge_sym.clone(),
                     sats: (pos_long - hcap) as u64,
                     price,
                     side: OrderSide::Ask,
@@ -482,12 +487,13 @@ impl Default for State {
 #[derive(Debug, Serialize, Deserialize, Schema, PartialEq, Clone)]
 pub enum StateAction {
     OpenOrder(OpeningOrder),
-    CloseOrder { order_id: u64 },
+    CloseOrder { order_id: u64, symbol: String },
 }
 
 #[derive(Debug, Serialize, Deserialize, Schema, PartialEq, Clone)]
 pub struct OpeningOrder {
     pub ext_id: String,
+    pub symbol: String,
     pub sats: u64,
     pub price: u64,
     /// Bid for selling sats, Ask for buying sats back
@@ -525,6 +531,7 @@ impl StateAction {
         match self {
             StateAction::OpenOrder(OpeningOrder {
                 ext_id,
+                symbol,
                 sats,
                 price,
                 side,
@@ -538,7 +545,7 @@ impl StateAction {
                     _type: OrderTag::Tag,
                     price: usd_price,
                     quantity,
-                    symbol: HEDGING_SYMBOL.to_owned(),
+                    symbol: symbol.clone(),
                     leverage: *leverage,
                     side: side.inverse(),
                     margin_type: MarginType::Isolated,
@@ -547,11 +554,11 @@ impl StateAction {
                     ext_order_id: ext_id.clone(),
                 }]
             }
-            StateAction::CloseOrder { order_id } => {
+            StateAction::CloseOrder { order_id, symbol } => {
                 vec![KolliderMsg::CancelOrder {
                     _type: CancelOrderTag::Tag,
                     order_id: *order_id,
-                    symbol: HEDGING_SYMBOL.to_owned(),
+                    symbol: symbol.clone(),
                     settlement_type: SettlementType::Delayed,
                 }]
             }

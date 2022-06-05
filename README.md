@@ -24,6 +24,14 @@ Provide the connection URL `KOLLIDER_HEDGE_POSTGRES` environment or pass it via 
 KOLLIDER_HEDGE_POSTGRES=postgresql://kollider:kollider@localhost:5432/kollider_hedge kollider-hedge serve
 ```
 
+Another example with all flags
+
+```bash
+kollider-hedge --api-key "<SOME_KEY>" --api-secret "<SOME_SECRET>" --password "<SOME_PASS>" --pair ".BTCUSD" --symbol "BTCEUR.PERP" serve
+```
+
+a `--pair` option `".BTCUSD"` and type of contract `--symbol "BTCEUR.PERP"` as well should be both supported by Kollider.
+
 Alsow you can run CLI to access API of the plugin from the terminal:
 ```
 kollider-hedge-cli --help

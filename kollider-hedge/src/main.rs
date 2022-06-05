@@ -29,6 +29,11 @@ struct Args {
     api_secret: String,
     #[clap(long, env = "KOLLIDER_API_PASSWORD", hide_env_values = true)]
     password: String,
+    /// Port to bind the service to
+    #[clap(long, short('c'), default_value = ".BTCUSD")]
+    pair: String,
+    #[clap(long, short('s'), default_value = "BTCUSD.PERP")]
+    symbol: String,
     /// PostgreSQL connection string
     #[clap(
         long,
@@ -59,7 +64,9 @@ enum SubCommand {
         /// That percent is added and subtructed from current price to ensure that order is executed
         #[clap(long, default_value = "0.1", env = "KOLLIDER_HEDGE_SPREAD")]
         spread_percent: f64,
-        /// leverage * 100, 100 means 1x, 200 means 2x. Defines the leverage of opened positions. If you hedge at 2x, you need 1/2 of sats to hedge all fixed USD value, but you will loose you money at 50% dropdowns.
+        /// leverage * 100, 100 means 1x, 200 means 2x. Defines the leverage of opened positions.
+        /// If you hedge at 2x, you need 1/2 of sats to hedge all fixed USD value, but you will
+        /// loose you money at 50% dropdowns.
         #[clap(long, default_value = "100", env = "KOLLIDER_HEDGE_LEVERAGE")]
         leverage: u64,
     },
@@ -85,8 +92,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let pool = create_db_pool(&args.dbconnect).await?;
             info!("Connected");
             let config = HedgeConfig {
+                hedge_pair: args.pair,
                 spread_percent,
                 hedge_leverage: leverage,
+                hedge_sym: args.symbol,
             };
 
             info!("Reconstructing state from database");
@@ -277,7 +286,7 @@ async fn listen_websocket(
                     debug!("Notified state that auth is passed");
 
                     let channels = vec![ChannelName::IndexValues];
-                    let symbols = vec![".BTCUSD".to_owned()];
+                    let symbols = vec![state.config.hedge_pair.to_owned()];
                     stdin_tx
                         .unbounded_send(KolliderMsg::Subscribe {
                             _type: SubscribeTag::Tag,

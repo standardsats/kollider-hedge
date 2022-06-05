@@ -71,9 +71,16 @@ async fn query_stats(#[data] state_mx: Arc<Mutex<State>>) -> Result<Json<Stats>,
     let state = state_mx.lock().await;
     let channel_sats = state.hedge_capacity();
     let avg_price = state.hedge_avg_price().unwrap_or(0);
+    fn safe_divide(numerator: f64, denominator: f64) -> f64 {
+        if denominator == 0.0 {
+            0.
+        } else {
+            numerator / denominator
+        }
+    }
     Ok(Json::from(Stats {
         channels_sats: channel_sats,
-        channels_usd: channel_sats as f64 / avg_price as f64,
+        channels_usd: safe_divide(channel_sats as f64, avg_price as f64),
         position_sats: state.position_volume(),
         position_usd: state.position_quantity(),
         account_balance: state.balance.unwrap_or(0.),
