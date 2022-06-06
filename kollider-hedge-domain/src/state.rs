@@ -537,9 +537,17 @@ impl StateAction {
                 side,
                 leverage,
             }) => {
-                let usd_price = 10 * 100_000_000 / price;
+                // FIX SOME TIME LATER
+                let mut usd_price = 0;
+                if(symbol == "BTCUSD.PERP") {
+                    usd_price = 10 * 100_000_000 / price;
+                    log::debug!("Price {} 10*USD/BTC", usd_price);
+                } else {
+                    usd_price = 100_000_000 / price;
+                    log::debug!("Price {} 10*USD/BTC", usd_price);
+                }
+                // END
                 let quantity = (*sats as f64 / *price as f64).ceil() as u64;
-                log::debug!("Price {} 10*USD/BTC", usd_price);
                 log::debug!("Quantity {}", quantity);
                 vec![KolliderMsg::Order {
                     _type: OrderTag::Tag,
